@@ -27,6 +27,22 @@ module MEGANFactorsMod
   real(r8), public, allocatable :: ct1(:)  ! temperature coefficient 1
   real(r8), public, allocatable :: ct2(:)  ! temperature coefficient 2
   real(r8), public, allocatable :: Ceo(:)  ! Eopt coefficient
+  !! For environmental stress
+  real(r8), public, allocatable :: CAQ(:)  ! coefficient for poor air quality stress
+  real(r8), public, allocatable :: CHT(:)  ! coefficient for high temperature stress
+  real(r8), public, allocatable :: CLT(:)  ! coefficient for low temperature stress
+  real(r8), public, allocatable :: CHW(:)  ! coefficient for high windspeed stress
+
+  real(r8), public, allocatable :: TAQ(:)  ! Threshold for poor air quality stress
+  real(r8), public, allocatable :: THT(:)  ! Threshold for high temperature stress
+  real(r8), public, allocatable :: TLT(:)  ! Threshold for low temperature stress
+  real(r8), public, allocatable :: THW(:)  ! Threshold for high windspeed stress
+
+  real(r8), public, allocatable :: DTAQ(:)  ! delta threshold for poor air quality stress
+  real(r8), public, allocatable :: DTHT(:)  ! delta threshold for high temperature stress
+  real(r8), public, allocatable :: DTLT(:)  ! delta threshold for low temperature stress
+  real(r8), public, allocatable :: DTHW(:)  ! delta threshold for high windspeed stress
+
   !
   ! !PRIVATE MEMBERS:
   integer :: npfts ! number of plant function types
@@ -113,7 +129,8 @@ contains
     real(r8),allocatable :: comp_factors(:)
     real(r8),allocatable :: class_factors(:)
 
-    allocate(comp_factors_table(150))
+    !allocate(comp_factors_table(150))
+    allocate(comp_factors_table(201))
     allocate(hash_table_indices(tbl_hash_sz))
 
 
@@ -172,6 +189,22 @@ contains
     allocate( ct1(n_classes) )
     allocate( ct2(n_classes) )
     allocate( Ceo(n_classes) )
+!********environmental stress**************
+    allocate( CAQ(n_classes) )
+    allocate( CHT(n_classes) )
+    allocate( CLT(n_classes) )
+    allocate( CHW(n_classes) )
+
+    allocate( TAQ(n_classes) )
+    allocate( THT(n_classes) )
+    allocate( TLT(n_classes) )
+    allocate( THW(n_classes) )
+
+    allocate( DTAQ(n_classes) )
+    allocate( DTHT(n_classes) )
+    allocate( DTLT(n_classes) )
+    allocate( DTHW(n_classes) )
+
 
     ierr = pio_inq_varid(ncid,'LDF', vid)
     ierr = pio_get_var( ncid, vid, LDF ) 
@@ -199,6 +232,42 @@ contains
 
     ierr = pio_inq_varid(ncid,'Ceo', vid)
     ierr = pio_get_var( ncid, vid, Ceo ) 
+!************air quality stress****************
+    ierr = pio_inq_varid(ncid,'CAQ', vid)
+    ierr = pio_get_var( ncid, vid, CAQ ) 
+
+    ierr = pio_inq_varid(ncid,'TAQ', vid)
+    ierr = pio_get_var( ncid, vid, TAQ ) 
+
+    ierr = pio_inq_varid(ncid,'DTAQ', vid)
+    ierr = pio_get_var( ncid, vid, DTAQ ) 
+!************high temperature stress****************
+    ierr = pio_inq_varid(ncid,'CHT', vid)
+    ierr = pio_get_var( ncid, vid, CHT ) 
+
+    ierr = pio_inq_varid(ncid,'THT', vid)
+    ierr = pio_get_var( ncid, vid, THT ) 
+
+    ierr = pio_inq_varid(ncid,'DTHT', vid)
+    ierr = pio_get_var( ncid, vid, DTHT ) 
+!************low temperature stress****************
+    ierr = pio_inq_varid(ncid,'CLT', vid)
+    ierr = pio_get_var( ncid, vid, CLT ) 
+
+    ierr = pio_inq_varid(ncid,'TLT', vid)
+    ierr = pio_get_var( ncid, vid, TLT ) 
+
+    ierr = pio_inq_varid(ncid,'DTLT', vid)
+    ierr = pio_get_var( ncid, vid, DTLT ) 
+!************high windspeed stress****************
+    ierr = pio_inq_varid(ncid,'CHW', vid)
+    ierr = pio_get_var( ncid, vid, CHW ) 
+
+    ierr = pio_inq_varid(ncid,'THW', vid)
+    ierr = pio_get_var( ncid, vid, THW ) 
+
+    ierr = pio_inq_varid(ncid,'DTHW', vid)
+    ierr = pio_get_var( ncid, vid, DTHW ) 
 
     call pio_closefile(ncid)
 
@@ -274,7 +343,7 @@ contains
     integer :: i
 
     integer, parameter :: tbl_max_idx = 15  ! 2**N - 1
-    integer, parameter :: gen_hash_key_offset = int(z'000053db')
+    integer, parameter :: gen_hash_key_offset = z'000053db'
     integer, dimension(0:tbl_max_idx) :: tbl_gen_hash_key =  (/61,59,53,47,43,41,37,31,29,23,17,13,11,7,3,1/)
 
     hash = gen_hash_key_offset
