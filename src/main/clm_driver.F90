@@ -788,7 +788,7 @@ contains
        call VOCEmission(bounds_clump,                                         &
                filter(nc)%num_soilp, filter(nc)%soilp,                           &
                atm2lnd_inst, canopystate_inst, photosyns_inst, temperature_inst, &
-               vocemis_inst)
+               vocemis_inst, energyflux_inst,  soilstate_inst, water_inst%waterstatebulk_inst)       
 
        call t_stopf('bgc')
 

@@ -26,7 +26,7 @@ module VOCEmissionMod
   use atm2lndType        , only : atm2lnd_type
   use CanopyStateType    , only : canopystate_type
   use PhotosynthesisMod  , only : photosyns_type
-  use WaterStateType     , only : waterstate_type
+  use WaterStateBulkType     , only : waterstatebulk_type
   use SoilStateType      , only : soilstate_type
   use SolarAbsorbedType  , only : solarabs_type
   use TemperatureType    , only : temperature_type
@@ -443,7 +443,7 @@ contains
   !-----------------------------------------------------------------------
   subroutine VOCEmission (bounds, num_soilp, filter_soilp, &
        atm2lnd_inst, canopystate_inst, photosyns_inst, temperature_inst, &
-       vocemis_inst, energyflux_inst, soilstate_inst, waterstate_inst)
+       vocemis_inst, energyflux_inst, soilstate_inst, waterstatebulk_inst)
     !
     ! ! NEW DESCRIPTION
     ! Volatile organic compound emission
@@ -492,7 +492,7 @@ contains
     !by Hui,
     type(energyflux_type)  , intent(in)    :: energyflux_inst
     type(soilstate_type)   , intent(in)    :: soilstate_inst
-    type(waterstate_type)  , intent(in)    :: waterstate_inst
+    type(waterstatebulk_type)  , intent(in)    :: waterstatebulk_inst
     !
     ! !REVISION HISTORY:
     ! 4/29/11: Colette L. Heald: expand MEGAN to 20 compound classes
@@ -575,9 +575,8 @@ contains
          sandfrac     => soilstate_inst%sandfrac_patch           , & ! Input:  [real(r8) (:)   ]  fraction of soil that is sand                     
          watsat       => soilstate_inst%watsat_col             , & ! Input:  [real(r8) (:,:) ]  volumetric soil water at saturation (porosity) (nlevgrnd)
          sucsat       => soilstate_inst%sucsat_col             , & ! Input:  [real(r8) (:,:) ]  minimum soil suction (mm) (nlevgrnd)            
-         h2osoi_vol   => waterstate_inst%h2osoi_vol_col        , & ! Input:  [real(r8) (:,:) ]  volumetric soil water (m3/m3)                   
-         h2osoi_ice   => waterstate_inst%h2osoi_ice_col        , & ! Input:  [real(r8) (:,:) ]  ice soil content (kg/m3)                        
-         h2osoi_liqice_10cm   => waterstate_inst%h2osoi_liqice_10cm_col , & ! Input:  [real(r8) (:,:) ]  ice+liq soil content at 10 cm(kg/m2)      
+         h2osoi_vol   => waterstatebulk_inst%h2osoi_vol_col        , & ! Input:  [real(r8) (:,:) ]  volumetric soil water (m3/m3)                   
+         h2osoi_ice   => waterstatebulk_inst%h2osoi_ice_col        , & ! Input:  [real(r8) (:,:) ]  ice soil content (kg/m3)                        
          !**********************************************************************
          !**********************************************************************
          
