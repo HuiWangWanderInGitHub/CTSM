@@ -49,6 +49,42 @@
     If TRUE then use mapped MEGAN emissions factors for isoprene.
   </entry>
 
+  <entry id="megan_ht_option"
+	 type="logical"
+	 category="drv_physics"
+	 group="megan_emis_nl" >
+    If TRUE then use high-temperature algorithm.
+  </entry>
+
+  <entry id="megan_lt_option"
+	 type="logical"
+	 category="drv_physics"
+	 group="megan_emis_nl" >
+    If TRUE then use low-temperature algorithm.
+  </entry>
+
+  <entry id="megan_hw_option"
+	 type="logical"
+	 category="drv_physics"
+	 group="megan_emis_nl" >
+    If TRUE then use high-wind algorithm.
+  </entry>
+
+  <entry id="megan_aq_option"
+	 type="logical"
+	 category="drv_physics"
+	 group="megan_emis_nl" >
+    If TRUE then use air quality algorithm.
+  </entry>
+
+  <entry id="megan_sm_option"
+	 type="integer"
+	 category="drv_physics"
+         group="megan_emis_nl" 
+	 valid_values="0,1,2,3,4" >
+    If TRUE then use soil moisture algorithm.
+  </entry>
+
   <entry id="megan_cmpds"
 	 type="char*32(150)"
 	 category="drv_physics"
