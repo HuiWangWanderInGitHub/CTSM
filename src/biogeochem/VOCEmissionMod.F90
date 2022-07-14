@@ -695,6 +695,10 @@ contains
                 gamma_sm = 1.0_r8 
           else if (shr_megan_sm_option .eq. 1) then
                     gamma_sm = get_gamma_SM_test(btran(p))
+          else if (shr_megan_sm_option .eq. 3) then
+                    gamma_sm = get_gamma_SM_test2(btran(p))
+          else if (shr_megan_sm_option .eq. 4) then
+                    gamma_sm = get_gamma_SM_test3(btran(p))
           else if (shr_megan_sm_option .eq. 2) then
 
              if (btran(p)>=0.6) then
@@ -731,17 +735,19 @@ contains
              class_num = meg_cmp%class_number
 
              ! Activity factor for PPFD
-             gamma_p = get_gamma_P(par_sun, par_sha, fsun(p), cp, alpha)
+             !gamma_p = get_gamma_P(par_sun, par_sha, fsun(p), cp, alpha)
+             gamma_p = get_gamma_P(par_sun, par24_sun, par240_sun, par_sha, par24_sha, par240_sha, &
+                  fsun(p), fsun240(p), forc_solad240(p),forc_solai240(p), LDF(class_num), cp, alpha)
 
              ! Activity factor for T
              gamma_tld = get_gamma_tld(t_veg240(p), t_veg24(p),t_veg(p), ct1(class_num), ct2(class_num),&
                                   Ceo(class_num), Eopt, topt)
              gamma_tli = get_gamma_tli(t_veg(p), betaT(class_num))
              
-             gamma_t = LDF(class_num)*gamma_tld + (1. - LDF(class_num))*gamma_tli
-             gamma_tp = LDF(class_num)*gamma_tld*gamma_p + (1. - LDF(class_num))*gamma_tli
-             !gamma_t = get_gamma_T(t_veg240(p), t_veg24(p),t_veg(p), ct1(class_num), ct2(class_num),&
-             !                      betaT(class_num),LDF(class_num), Ceo(class_num), Eopt, topt)
+             !gamma_t = LDF(class_num)*gamma_tld + (1. - LDF(class_num))*gamma_tli
+             !gamma_tp = LDF(class_num)*gamma_tld*gamma_p + (1. - LDF(class_num))*gamma_tli
+             gamma_t = get_gamma_T(t_veg240(p), t_veg24(p),t_veg(p), ct1(class_num), ct2(class_num),&
+                                   betaT(class_num),LDF(class_num), Ceo(class_num), Eopt, topt)
 
              ! Activity factor for Leaf Age
              gamma_a = get_gamma_A(patch%itype(p), elai240(p),elai(p),class_num)
@@ -848,16 +854,16 @@ contains
 
              ! Calculate total scaling factor
              if ( trim(meg_cmp%name) == 'isoprene') then
-             !gamma = gamma_l * gamma_sm * gamma_a * gamma_p * gamma_T * gamma_c * &
-             !        gamma_ht*gamma_lt*gamma_hw*gamma_aq
+             gamma = gamma_l * gamma_sm * gamma_a * gamma_p * gamma_t * gamma_c * &
+                     gamma_ht*gamma_lt*gamma_hw*gamma_aq
              ! gamma_tp replace gamma_T*gamma_p in MEGAN v3
-             gamma = gamma_l * gamma_sm * gamma_a * gamma_tp * gamma_c * &
-                     gamma_ht*gamma_lt*gamma_hw*gamma_aq
-             else
-             !gamma = gamma_l * gamma_a * gamma_p * gamma_T * gamma_c * &
+             !gamma = gamma_l * gamma_sm * gamma_a * gamma_tp * gamma_c * &
              !        gamma_ht*gamma_lt*gamma_hw*gamma_aq
-             gamma = gamma_l * gamma_a * gamma_tp * gamma_c * &
+             else
+             gamma = gamma_l * gamma_a * gamma_p * gamma_T * gamma_c * &
                      gamma_ht*gamma_lt*gamma_hw*gamma_aq
+             !gamma = gamma_l * gamma_a * gamma_tp * gamma_c * &
+             !        gamma_ht*gamma_lt*gamma_hw*gamma_aq
              endif
 
              if ( (gamma >=0.0_r8) .and. (gamma< 100._r8) ) then
@@ -974,37 +980,108 @@ contains
 
   end function get_map_EF
 
+!  !-----------------------------------------------------------------------
+!  function get_gamma_P(par_sun_in, par_sha_in, fsun_in, cp, alpha) 
+!    !
+!    ! Activity factor for PPFD (MEGAN3): all light dependent species
+!    !-------------------------
+!    ! Currently gamma_p doesn't rely on the long-term light conditions in MEGAN3
+!    ! With distinction between sunlit and shaded leafs, weight scalings by
+!    ! fsun and fshade 
+!    ! !ARGUMENTS:
+!    implicit none
+!    real(r8),intent(in) :: par_sun_in
+!    real(r8),intent(in) :: par_sha_in
+!    real(r8),intent(in) :: fsun_in
+!    real(r8),intent(out):: cp                      ! temporary
+!    real(r8),intent(out):: alpha                   ! temporary
+!    !
+!    ! !LOCAL VARIABLES:
+!    real(r8) :: gamma_p_LDF             ! activity factor for PPFD
+!    real(r8) :: get_gamma_P             ! return value
+!    real(r8), parameter :: alpha_fix = 0.004_r8  ! empirical coefficient
+!    real(r8), parameter :: cp_fix = 1.03_r8      ! empirical coefficient
+!    !-----------------------------------------------------------------------
+!    alpha = alpha_fix
+!    cp = cp_fix
+!    ! SUN:
+!    gamma_p_LDF = fsun_in * ( cp * alpha * par_sun_in * (1._r8 + alpha*alpha*par_sun_in*par_sun_in)**(-0.5_r8) )
+!    ! SHADE:
+!    gamma_p_LDF = gamma_p_LDF + (1._r8-fsun_in) * (cp*alpha*par_sha_in*(1._r8 + alpha*alpha*par_sha_in*par_sha_in)**(-0.5_r8))
+!
+!    !the LDF will be used for gamma_tp
+!    get_gamma_P =  gamma_p_LDF
+!
+!  end function get_gamma_P
   !-----------------------------------------------------------------------
-  function get_gamma_P(par_sun_in, par_sha_in, fsun_in, cp, alpha) 
+  function get_gamma_P(par_sun_in, par24_sun_in, par240_sun_in, par_sha_in, par24_sha_in, par240_sha_in, &
+       fsun_in, fsun240_in, forc_solad240_in,forc_solai240_in, LDF_in, cp, alpha) 
     !
-    ! Activity factor for PPFD (MEGAN3): all light dependent species
+    ! Activity factor for PPFD (Guenther et al., 2006): all light dependent species
     !-------------------------
-    ! Currently gamma_p doesn't rely on the long-term light conditions in MEGAN3
     ! With distinction between sunlit and shaded leafs, weight scalings by
     ! fsun and fshade 
+    ! Scale total incident par by fraction of sunlit leaves (added on 1/2002)
+
+    ! fvitt -- forc_solad240, forc_solai240 can be zero when CLM finidat is specified
+    !          which will cause par240 to be zero and produce NaNs via log(par240)
+    ! dml   -- fsun240 can be equal to or greater than one before 10 day averages are
+    !           set on startup or if a new patch comes online during land cover change.
+    !           Avoid this problem by only doing calculations with fsun240 when fsun240 is
+    !           between 0 and 1
+    !
     ! !ARGUMENTS:
     implicit none
     real(r8),intent(in) :: par_sun_in
+    real(r8),intent(in) :: par24_sun_in
+    real(r8),intent(in) :: par240_sun_in
     real(r8),intent(in) :: par_sha_in
+    real(r8),intent(in) :: par24_sha_in
+    real(r8),intent(in) :: par240_sha_in
     real(r8),intent(in) :: fsun_in
+    real(r8),intent(in) :: fsun240_in
+    real(r8),intent(in) :: forc_solad240_in
+    real(r8),intent(in) :: forc_solai240_in
+    real(r8),intent(in) :: LDF_in
     real(r8),intent(out):: cp                      ! temporary
     real(r8),intent(out):: alpha                   ! temporary
     !
     ! !LOCAL VARIABLES:
     real(r8) :: gamma_p_LDF             ! activity factor for PPFD
     real(r8) :: get_gamma_P             ! return value
-    real(r8), parameter :: alpha_fix = 0.004_r8  ! empirical coefficient
-    real(r8), parameter :: cp_fix = 1.03_r8      ! empirical coefficient
+    real(r8), parameter :: ca1 = 0.004_r8        ! empirical coefficent for alpha
+    real(r8), parameter :: ca2 = 0.0005_r8       ! empirical coefficent for alpha
+    real(r8), parameter :: ca3 = 0.0468_r8       ! empirical coefficent for cp
+    real(r8), parameter :: par0_sun = 200._r8    ! std conditions for past 24 hrs [umol/m2/s]
+    real(r8), parameter :: par0_shade = 50._r8   ! std conditions for past 24 hrs [umol/m2/s]
+    real(r8), parameter :: alpha_fix = 0.001_r8  ! empirical coefficient
+    real(r8), parameter :: cp_fix = 1.21_r8      ! empirical coefficient
     !-----------------------------------------------------------------------
-    alpha = alpha_fix
-    cp = cp_fix
-    ! SUN:
-    gamma_p_LDF = fsun_in * ( cp * alpha * par_sun_in * (1._r8 + alpha*alpha*par_sun_in*par_sun_in)**(-0.5_r8) )
-    ! SHADE:
-    gamma_p_LDF = gamma_p_LDF + (1._r8-fsun_in) * (cp*alpha*par_sha_in*(1._r8 + alpha*alpha*par_sha_in*par_sha_in)**(-0.5_r8))
 
-    !the LDF will be used for gamma_tp
-    get_gamma_P =  gamma_p_LDF
+    if ( (fsun240_in > 0._r8) .and. (fsun240_in < 1._r8) .and.  (forc_solad240_in > 0._r8) &
+         .and. (forc_solai240_in > 0._r8)) then
+       ! With alpha and cp calculated based on eq 6 and 7:
+       ! Note indexing for accumulated variables is all at patch level
+       ! SUN:
+       alpha = ca1 - ca2 * log(par240_sun_in)
+       cp = ca3 * exp(ca2 * (par24_sun_in-par0_sun))*par240_sun_in**(0.6_r8)
+       gamma_p_LDF = fsun_in * ( cp * alpha * par_sun_in * (1._r8 + alpha*alpha*par_sun_in*par_sun_in)**(-0.5_r8) )
+       ! SHADE:
+       alpha = ca1 - ca2 * log(par240_sha_in)
+       cp = ca3 * exp(ca2 * (par_sha_in-par0_shade))*par240_sha_in**(0.6_r8)
+       gamma_p_LDF = gamma_p_LDF + (1._r8-fsun_in) * (cp*alpha*par_sha_in*(1._r8 + alpha*alpha*par_sha_in*par_sha_in)**(-0.5_r8))
+    else
+       ! With fixed alpha and cp (from MEGAN User's Guide):
+       ! SUN: direct + diffuse  
+       alpha = alpha_fix
+       cp = cp_fix
+       gamma_p_LDF = fsun_in * ( cp * alpha*par_sun_in * (1._r8 + alpha*alpha*par_sun_in*par_sun_in)**(-0.5_r8) )
+       ! SHADE: diffuse 
+       gamma_p_LDF = gamma_p_LDF + (1._r8-fsun_in) * (cp*alpha*par_sha_in*(1._r8 + alpha*alpha*par_sha_in*par_sha_in)**(-0.5_r8))
+    end if
+
+    ! Calculate total activity factor for PPFD accounting for light-dependent fraction
+    get_gamma_P = (1._r8 - LDF_in) + LDF_in * gamma_p_LDF
 
   end function get_gamma_P
 
@@ -1057,7 +1134,7 @@ contains
     real(r8), parameter :: k1 = -7.4463      
     real(r8), parameter :: b1 = 3.2552       
     real(r8), parameter :: k2 = -28.7629         
-    real(r8), parameter :: b2 = 7.4e8    
+    real(r8), parameter :: b2 = 2.35e6
     real(r8)            :: get_gamma_SM_test
              if (btran_in >= 1.) then
                 get_gamma_SM_test = 1!1/(1+b*exp(k*(theta1-h2osoi_vol_in(j)))) 
@@ -1069,8 +1146,48 @@ contains
              endif 
  
   end function get_gamma_SM_test
-
   !-----------------------------------------------------------------------
+
+  function get_gamma_SM_test2(btran_in)
+    ! !ARGUMENTS:
+    implicit none
+    real(r8),intent(in) :: btran_in
+    !!!------- the drought algorithm by Kc, 20210820--------
+    
+    !!!------- the drought algorithm by Kc, 20211020--------
+    real(r8), parameter :: frac = 1.4          
+    real(r8), parameter :: k1 = -7.4463      
+    real(r8), parameter :: b1 = 3.2552       
+    real(r8), parameter :: k2 = -28.7629         
+    real(r8), parameter :: b2 = 2.35e6
+    real(r8)            :: get_gamma_SM_test2
+             if (btran_in >= 1.) then
+                get_gamma_SM_test2 = 1!1/(1+b*exp(k*(theta1-h2osoi_vol_in(j)))) 
+             else
+                get_gamma_SM_test2 = 1/(1+b1*exp(k1*(btran_in-0.2)))
+             endif 
+ 
+  end function get_gamma_SM_test2
+  
+!-----------------------------------------------------------------------
+  function get_gamma_SM_test3(btran_in)
+    ! !ARGUMENTS:
+    implicit none
+    real(r8),intent(in) :: btran_in
+    !!!------- the drought algorithm by Kc, 20210820--------
+    
+    !!!------- the drought algorithm by Kc, 20211020--------
+    real(r8), parameter :: k1 = -15.34      
+    real(r8), parameter :: b1 = 3.14       
+    real(r8)            :: get_gamma_SM_test3
+             if (btran_in >= 1.) then
+                get_gamma_SM_test3 = 1!1/(1+b*exp(k*(theta1-h2osoi_vol_in(j)))) 
+             else
+                get_gamma_SM_test3 = 1/(1+b1*exp(k1*(btran_in-0.2)))
+             endif 
+ 
+  end function get_gamma_SM_test3
+
   !-----------------------------------------------------------------------
   function get_gamma_tld(t_veg240_in, t_veg24_in,t_veg_in, ct1_in, ct2_in, Ceo_in, Eopt, topt)
 
@@ -1136,6 +1253,68 @@ contains
     ! Light independent fraction (of exp(beta T) form)
     get_gamma_tli = exp(betaT_in * (t_veg_in - tstd))
   end function get_gamma_tli
+
+  !-----------------------------------------------------------------------
+  function get_gamma_T(t_veg240_in, t_veg24_in,t_veg_in, ct1_in, ct2_in, betaT_in, LDF_in, Ceo_in, Eopt, topt)
+
+    ! Activity factor for temperature 
+    !--------------------------------
+    ! Calculate both a light-dependent fraction as in Guenther et al., 2006 for isoprene
+    ! of a max saturation type form. Also caculate a light-independent fraction of the
+    ! form of an exponential. Final activity factor depends on light dependent fraction
+    ! of compound type.
+    !
+    ! !ARGUMENTS:
+    implicit none
+    real(r8),intent(in) :: t_veg240_in
+    real(r8),intent(in) :: t_veg24_in
+    real(r8),intent(in) :: t_veg_in
+    real(r8),intent(in) :: ct1_in
+    real(r8),intent(in) :: ct2_in
+    real(r8),intent(in) :: betaT_in
+    real(r8),intent(in) :: LDF_in
+    real(r8),intent(in) :: Ceo_in
+    real(r8),intent(out) :: Eopt                    ! temporary 
+    real(r8),intent(out) :: topt                    ! temporary 
+    !
+    ! !LOCAL VARIABLES:
+    real(r8) :: get_gamma_T
+    real(r8) :: gamma_t_LDF             ! activity factor for temperature
+    real(r8) :: gamma_t_LIF             ! activity factor for temperature
+    real(r8) :: x                       ! temporary 
+    real(r8), parameter :: co1 = 313._r8                   ! empirical coefficient
+    real(r8), parameter :: co2 = 0.6_r8                    ! empirical coefficient
+    real(r8), parameter :: co4 = 0.05_r8                   ! empirical coefficient
+    real(r8), parameter :: tstd0 = 297_r8                  ! std temperature [K]
+    real(r8), parameter :: topt_fix = 317._r8              ! std temperature [K]
+    real(r8), parameter :: Eopt_fix = 2.26_r8              ! empirical coefficient
+    real(r8), parameter :: ct3 = 0.00831_r8                ! empirical coefficient (0.0083 in User's Guide)
+    real(r8), parameter :: tstd = 303.15_r8                ! std temperature [K]
+    real(r8), parameter :: bet = 0.09_r8                   ! beta empirical coefficient [K-1]
+    !-----------------------------------------------------------------------
+
+    ! Light dependent fraction (Guenther et al., 2006)
+    if ( (t_veg240_in > 0.0_r8) .and. (t_veg240_in < 1.e30_r8) ) then 
+       ! topt and Eopt from eq 8 and 9:
+       topt = co1 + (co2 * (t_veg240_in-tstd0))
+       Eopt = Ceo_in * exp (co4 * (t_veg24_in-tstd0)) * exp(co4 * (t_veg240_in -tstd0))
+    else
+       topt = topt_fix
+       Eopt = Eopt_fix
+    endif
+    x = ( (1._r8/topt) - (1._r8/(t_veg_in)) ) / ct3
+    gamma_t_LDF = Eopt * ( ct2_in * exp(ct1_in * x)/(ct2_in - ct1_in * (1._r8 - exp(ct2_in * x))) )
+    
+    
+    ! Light independent fraction (of exp(beta T) form)
+    gamma_t_LIF = exp(betaT_in * (t_veg_in - tstd))
+    
+    ! Calculate total activity factor for light as a function of light-dependent fraction
+    !--------------------------------
+    get_gamma_T = (1-LDF_in)*gamma_T_LIF + LDF_in*gamma_T_LDF 
+
+  end function get_gamma_T
+
 
 
   !-----------------------------------------------------------------------
