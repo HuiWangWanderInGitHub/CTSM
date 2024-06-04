@@ -10,7 +10,7 @@ module WaterFluxType
   use clm_varpar     , only : nlevsno, nlevsoi
   use clm_varcon     , only : spval
   use decompMod      , only : bounds_type
-  use decompMod      , only : BOUNDS_SUBGRID_PATCH, BOUNDS_SUBGRID_COLUMN, BOUNDS_SUBGRID_GRIDCELL
+  use decompMod      , only : subgrid_level_patch, subgrid_level_column, subgrid_level_landunit, subgrid_level_gridcell
   use LandunitType   , only : lun                
   use ColumnType     , only : col                
   use AnnualFluxDribbler, only : annual_flux_dribbler_type, annual_flux_dribbler_gridcell
@@ -26,7 +26,7 @@ module WaterFluxType
 
      class(water_info_base_type), pointer :: info
 
-     ! water fluxes are in units or mm/s
+     ! water fluxes are in units of mm/s
 
      real(r8), pointer :: qflx_through_snow_patch  (:)   ! patch canopy throughfall of snow (mm H2O/s)
      real(r8), pointer :: qflx_through_liq_patch  (:)    ! patch canopy throughfal of liquid (rain+irrigation) (mm H2O/s)
@@ -72,6 +72,10 @@ module WaterFluxType
      real(r8), pointer :: qflx_infl_col            (:)   ! col infiltration (mm H2O /s)
      real(r8), pointer :: qflx_surf_col            (:)   ! col total surface runoff (mm H2O /s)
      real(r8), pointer :: qflx_drain_col           (:)   ! col sub-surface runoff (mm H2O /s)
+     real(r8), pointer :: qflx_latflow_in_col      (:)   ! col hillslope lateral flow input (mm/s)
+     real(r8), pointer :: qflx_latflow_out_col     (:)   ! col hillslope lateral flow output (mm/s)
+     real(r8), pointer :: volumetric_discharge_col (:)   ! col hillslope discharge (m3/s)
+     real(r8), pointer :: volumetric_streamflow_lun(:)   ! lun stream discharge (m3/s)
      real(r8), pointer :: qflx_drain_perched_col   (:)   ! col sub-surface runoff from perched wt (mm H2O /s)                                                                                                      
      real(r8), pointer :: qflx_top_soil_col        (:)   ! col net water input into soil from top (mm/s)
      real(r8), pointer :: qflx_floodc_col          (:)   ! col flood water flux at column level
@@ -156,218 +160,230 @@ contains
 
     call AllocateVar1d(var = this%qflx_through_snow_patch, name = 'qflx_through_snow_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_through_liq_patch, name = 'qflx_through_liq_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_intercepted_snow_patch, name = 'qflx_intercepted_snow_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_intercepted_liq_patch, name = 'qflx_intercepted_liq_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_snocanfall_patch, name = 'qflx_snocanfall_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_liqcanfall_patch, name = 'qflx_liqcanfall_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_snow_unload_patch, name = 'qflx_snow_unload_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_solidevap_from_top_layer_patch, name = 'qflx_solidevap_from_top_layer_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH, &
+         bounds = bounds, subgrid_level = subgrid_level_patch, &
          ival = 0.0_r8)
     call AllocateVar1d(var = this%qflx_tran_veg_patch, name = 'qflx_tran_veg_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_liqdew_to_top_layer_patch, name = 'qflx_liqdew_to_top_layer_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_soliddew_to_top_layer_patch, name = 'qflx_soliddew_to_top_layer_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
 
     call AllocateVar1d(var = this%qflx_liq_grnd_col, name = 'qflx_liq_grnd_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_snow_grnd_col, name = 'qflx_snow_grnd_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_rain_plus_snomelt_col, name = 'qflx_rain_plus_snomelt_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_solidevap_from_top_layer_col, name = 'qflx_solidevap_from_top_layer_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN, &
+         bounds = bounds, subgrid_level = subgrid_level_column, &
          ival = 0.0_r8)
     call AllocateVar1d(var = this%qflx_snwcp_liq_col, name = 'qflx_snwcp_liq_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_snwcp_ice_col, name = 'qflx_snwcp_ice_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_snwcp_discarded_liq_col, name = 'qflx_snwcp_discarded_liq_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_snwcp_discarded_ice_col, name = 'qflx_snwcp_discarded_ice_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_glcice_col, name = 'qflx_glcice_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_glcice_frz_col, name = 'qflx_glcice_frz_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_glcice_melt_col, name = 'qflx_glcice_melt_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_glcice_dyn_water_flux_col, name = 'qflx_glcice_dyn_water_flux_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_tran_veg_col, name = 'qflx_tran_veg_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_evap_veg_col, name = 'qflx_evap_veg_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_evap_can_col, name = 'qflx_evap_can_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_evap_soi_col, name = 'qflx_evap_soi_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_evap_tot_col, name = 'qflx_evap_tot_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_liqevap_from_top_layer_col, name = 'qflx_liqevap_from_top_layer_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_liqdew_to_top_layer_col, name = 'qflx_liqdew_to_top_layer_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_soliddew_to_top_layer_col, name = 'qflx_soliddew_to_top_layer_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_evap_veg_patch, name = 'qflx_evap_veg_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_evap_can_patch, name = 'qflx_evap_can_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_evap_soi_patch, name = 'qflx_evap_soi_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_evap_tot_patch, name = 'qflx_evap_tot_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     call AllocateVar1d(var = this%qflx_liqevap_from_top_layer_patch, name = 'qflx_liqevap_from_top_layer_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
 
     call AllocateVar1d(var = this%qflx_infl_col, name = 'qflx_infl_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_surf_col, name = 'qflx_surf_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_drain_col, name = 'qflx_drain_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_drain_perched_col, name = 'qflx_drain_perched_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
+    call AllocateVar1d(var = this%qflx_latflow_in_col, name = 'qflx_latflow_in_col', &
+         container = tracer_vars, &
+         bounds = bounds, subgrid_level = subgrid_level_column)
+    call AllocateVar1d(var = this%qflx_latflow_out_col, name = 'qflx_latflow_out_col', &
+         container = tracer_vars, &
+         bounds = bounds, subgrid_level = subgrid_level_column)
+    call AllocateVar1d(var = this%volumetric_discharge_col, name = 'volumetric_discharge_col', &
+         container = tracer_vars, &
+         bounds = bounds, subgrid_level = subgrid_level_column)
+    call AllocateVar1d(var = this%volumetric_streamflow_lun, name = 'volumetric_streamflow_lun', &
+         container = tracer_vars, &
+         bounds = bounds, subgrid_level = subgrid_level_landunit)
     call AllocateVar1d(var = this%qflx_top_soil_col, name = 'qflx_top_soil_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_snomelt_col, name = 'qflx_snomelt_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_snofrz_col, name = 'qflx_snofrz_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar2d(var = this%qflx_snofrz_lyr_col, name = 'qflx_snofrz_lyr_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN, &
+         bounds = bounds, subgrid_level = subgrid_level_column, &
          dim2beg = -nlevsno+1, dim2end = 0)
     call AllocateVar1d(var = this%qflx_snow_drain_col, name = 'qflx_snow_drain_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_ice_runoff_snwcp_col, name = 'qflx_ice_runoff_snwcp_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_ice_runoff_xs_col, name = 'qflx_ice_runoff_xs_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_qrgwl_col, name = 'qflx_qrgwl_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_floodc_col, name = 'qflx_floodc_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_sl_top_soil_col, name = 'qflx_sl_top_soil_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_runoff_col, name = 'qflx_runoff_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_runoff_r_col, name = 'qflx_runoff_r_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_runoff_u_col, name = 'qflx_runoff_u_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_rsub_sat_col, name = 'qflx_rsub_sat_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
 
     call AllocateVar1d(var = this%qflx_h2osfc_to_ice_col, name = 'qflx_h2osfc_to_ice_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_snow_h2osfc_col, name = 'qflx_snow_h2osfc_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
     call AllocateVar1d(var = this%qflx_too_small_h2osfc_to_soil_col, name = 'qflx_too_small_h2osfc_to_soil_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
 
     call AllocateVar2d(var = this%qflx_snow_percolation_col, name = 'qflx_snow_percolation_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN, &
+         bounds = bounds, subgrid_level = subgrid_level_column, &
          dim2beg = -nlevsno+1, dim2end = 0)
 
     call AllocateVar1d(var = this%qflx_liq_dynbal_grc, name = 'qflx_liq_dynbal_grc', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_GRIDCELL)
+         bounds = bounds, subgrid_level = subgrid_level_gridcell)
     call AllocateVar1d(var = this%qflx_ice_dynbal_grc, name = 'qflx_ice_dynbal_grc', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_GRIDCELL)
+         bounds = bounds, subgrid_level = subgrid_level_gridcell)
 
     call AllocateVar1d(var = this%qflx_sfc_irrig_col, name = 'qflx_sfc_irrig_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
 
     call AllocateVar1d(var = this%qflx_gw_uncon_irrig_col, name = 'qflx_gw_uncon_irrig_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
 
     call AllocateVar2d(var = this%qflx_gw_uncon_irrig_lyr_col, name = 'qflx_gw_uncon_irrig_lyr_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN, &
+         bounds = bounds, subgrid_level = subgrid_level_column, &
          dim2beg = 1, dim2end = nlevsoi)
 
     call AllocateVar1d(var = this%qflx_gw_con_irrig_col, name = 'qflx_gw_con_irrig_col', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_COLUMN)
+         bounds = bounds, subgrid_level = subgrid_level_column)
 
     call AllocateVar1d(var = this%qflx_irrig_drip_patch, name = 'qflx_irrig_drip_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
 
     call AllocateVar1d(var = this%qflx_irrig_sprinkler_patch, name = 'qflx_irrig_sprinkler_patch', &
          container = tracer_vars, &
-         bounds = bounds, subgrid_level = BOUNDS_SUBGRID_PATCH)
+         bounds = bounds, subgrid_level = subgrid_level_patch)
     
     this%qflx_liq_dynbal_dribbler = annual_flux_dribbler_gridcell( &
          bounds = bounds, &
@@ -386,6 +402,8 @@ contains
     !
     ! !USES:
     use histFileMod , only : hist_addfld1d, hist_addfld2d, no_snow_normal
+    use clm_varctl  , only : use_hillslope, use_hillslope_routing
+
     !
     ! !ARGUMENTS:
     class(waterflux_type), intent(in) :: this
@@ -394,12 +412,14 @@ contains
     ! !LOCAL VARIABLES:
     integer           :: begp, endp
     integer           :: begc, endc
+    integer           :: begl, endl
     integer           :: begg, endg
     real(r8), pointer :: data2dptr(:,:), data1dptr(:) ! temp. pointers for slicing larger arrays
     !------------------------------------------------------------------------
 
     begp = bounds%begp; endp= bounds%endp
     begc = bounds%begc; endc= bounds%endc
+    begl = bounds%begl; endl= bounds%endl
     begg = bounds%begg; endg= bounds%endg
 
     this%qflx_through_liq_patch(begp:endp) = spval
@@ -482,6 +502,37 @@ contains
          avgflag='A', &
          long_name=this%info%lname('sub-surface drainage'), &
          ptr_col=this%qflx_drain_col, c2l_scale_type='urbanf')
+
+    if (use_hillslope) then
+       this%qflx_latflow_out_col(begc:endc) = spval
+       call hist_addfld1d ( &
+            fname=this%info%fname('QLATFLOWOUT'),  &
+            units='mm/s',  &
+            avgflag='A', &
+            long_name=this%info%lname('hillcol lateral outflow'), &
+            l2g_scale_type='natveg', c2l_scale_type='urbanf', &
+            ptr_col=this%qflx_latflow_out_col)
+
+       this%volumetric_discharge_col(begc:endc) = spval
+       call hist_addfld1d ( &
+            fname=this%info%fname('VOLUMETRIC_DISCHARGE'),  &
+            units='m3/s',  &
+            avgflag='A', &
+            long_name=this%info%lname('hillslope discharge from column'), &
+            l2g_scale_type='natveg', c2l_scale_type='urbanf', &
+            ptr_col=this%volumetric_discharge_col,default='inactive')
+
+       if (use_hillslope_routing) then
+          this%volumetric_streamflow_lun(begl:endl) = spval
+          call hist_addfld1d ( &
+               fname=this%info%fname('VOLUMETRIC_STREAMFLOW'),  &
+               units='m3/s',  &
+               avgflag='A', &
+               long_name=this%info%lname('volumetric streamflow from hillslope'), &
+               l2g_scale_type='natveg', &
+               ptr_lunit=this%volumetric_streamflow_lun)
+       endif
+    endif
 
     this%qflx_drain_perched_col(begc:endc) = spval
     call hist_addfld1d ( &
@@ -810,6 +861,8 @@ contains
     !
     ! !USES:
     use landunit_varcon, only : istsoil, istcrop
+    use clm_varctl     , only : use_hillslope_routing
+
     !
     ! !ARGUMENTS:
     class(waterflux_type), intent(in) :: this
@@ -861,9 +914,19 @@ contains
        if (lun%itype(l) == istsoil .or. lun%itype(l) == istcrop) then
           this%qflx_drain_col(c) = 0._r8
           this%qflx_surf_col(c)  = 0._r8
+          this%qflx_latflow_in_col(c)  = 0._r8
+          this%qflx_latflow_out_col(c) = 0._r8
+          this%volumetric_discharge_col(c) = 0._r8
        end if
     end do
-
+    if (use_hillslope_routing) then
+       do l = bounds%begl, bounds%endl
+          if (lun%itype(l) == istsoil .or. lun%itype(l) == istcrop) then
+             this%volumetric_streamflow_lun(l) = 0._r8
+          end if
+       end do
+    endif
+          
   end subroutine InitCold
 
   !------------------------------------------------------------------------

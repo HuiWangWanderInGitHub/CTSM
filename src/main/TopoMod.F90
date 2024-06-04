@@ -13,8 +13,9 @@ module TopoMod
   use LandunitType   , only : lun
   use glc2lndMod     , only : glc2lnd_type
   use glcBehaviorMod , only : glc_behavior_type
-  use landunit_varcon, only : istice_mec
+  use landunit_varcon, only : istice, istsoil
   use filterColMod   , only : filter_col_type, col_filter_from_logical_array_active_only
+  use clm_varctl     , only : use_hillslope, downscale_hillslope_meteorology
   !
   ! !PUBLIC TYPES:
   implicit none
@@ -112,7 +113,7 @@ contains
   !-----------------------------------------------------------------------
   subroutine InitCold(this, bounds)
     ! !USES:
-    use column_varcon    , only: col_itype_to_icemec_class
+    use column_varcon    , only: col_itype_to_ice_class
     use clm_instur, only : topo_glc_mec
     ! !ARGUMENTS:
     class(topo_type), intent(inout) :: this
@@ -120,7 +121,7 @@ contains
     !
     ! !LOCAL VARIABLES:
     integer :: c, l, g
-    integer :: icemec_class            ! current icemec class (1..maxpatch_glcmec)
+    integer :: ice_class            ! current ice class (1..maxpatch_glc)
 
     character(len=*), parameter :: subname = 'InitCold'
     !-----------------------------------------------------------------------
@@ -129,18 +130,24 @@ contains
        l = col%landunit(c)
        g = col%gridcell(c)
 
-       if (lun%itype(l) == istice_mec) then
-          ! For ice_mec landunits, initialize topo_col based on surface dataset; this
+       if (lun%itype(l) == istice) then
+          ! For ice landunits, initialize topo_col based on surface dataset; this
           ! will get overwritten in the run loop by values sent from CISM
-          icemec_class = col_itype_to_icemec_class(col%itype(c))
-          this%topo_col(c) = topo_glc_mec(g, icemec_class)
+          ice_class = col_itype_to_ice_class(col%itype(c))
+          this%topo_col(c) = topo_glc_mec(g, ice_class)
           this%needs_downscaling_col(c) = .true.
        else
           ! For other landunits, arbitrarily initialize topo_col to 0 m; for landunits
           ! where this matters, this will get overwritten in the run loop by values sent
           ! from CISM
-          this%topo_col(c) = 0._r8
-          this%needs_downscaling_col(c) = .false.
+          if (col%is_hillslope_column(c) .and. downscale_hillslope_meteorology) then
+             this%topo_col(c) = col%hill_elev(c)
+             this%needs_downscaling_col(c) = .true.
+          else
+             this%topo_col(c) = 0._r8
+             this%needs_downscaling_col(c) = .false.
+          endif
+
        end if
     end do
 
@@ -196,7 +203,7 @@ contains
 
 
   !-----------------------------------------------------------------------
-  subroutine UpdateTopo(this, bounds, num_icemecc, filter_icemecc, &
+  subroutine UpdateTopo(this, bounds, num_icec, filter_icec, &
        glc2lnd_inst, glc_behavior, atm_topo)
     !
     ! !DESCRIPTION:
@@ -210,15 +217,17 @@ contains
     ! !ARGUMENTS:
     class(topo_type)        , intent(inout) :: this
     type(bounds_type)       , intent(in)    :: bounds
-    integer                 , intent(in)    :: num_icemecc       ! number of points in filter_icemecc
-    integer                 , intent(in)    :: filter_icemecc(:) ! col filter for ice_mec
+    integer                 , intent(in)    :: num_icec       ! number of points in filter_icec
+    integer                 , intent(in)    :: filter_icec(:) ! col filter for ice
     type(glc2lnd_type)      , intent(in)    :: glc2lnd_inst
     type(glc_behavior_type) , intent(in)    :: glc_behavior
     real(r8)                , intent(in)    :: atm_topo( bounds%begg: ) ! atmosphere topographic height [m]
     !
     ! !LOCAL VARIABLES:
     integer :: begc, endc
-    integer :: c, g
+    integer :: c, l, g
+    real(r8), allocatable :: mean_hillslope_elevation(:)
+    real(r8):: mhe_norm
 
     character(len=*), parameter :: subname = 'UpdateTopo'
     !-----------------------------------------------------------------------
@@ -231,7 +240,7 @@ contains
     ! than trying to figure out where it does and does not need to be reset.
     this%needs_downscaling_col(begc:endc) = .false.
 
-    call glc_behavior%icemec_cols_need_downscaling(bounds, num_icemecc, filter_icemecc, &
+    call glc_behavior%ice_cols_need_downscaling(bounds, num_icec, filter_icec, &
          this%needs_downscaling_col(begc:endc))
 
     ! In addition to updating topo_col, this also sets some additional elements of
@@ -240,18 +249,48 @@ contains
          this%topo_col(begc:endc), &
          this%needs_downscaling_col(begc:endc))
 
-    ! For any point that isn't downscaled, set its topo value to the atmosphere's
-    ! topographic height. This shouldn't matter, but is useful if topo_col is written to
-    ! the history file.
-    !
+    ! calculate area-weighted mean hillslope elevation on each landunit
+    if (use_hillslope) then
+       allocate(mean_hillslope_elevation(bounds%begl:bounds%endl))
+       mean_hillslope_elevation(:) = 0._r8
+       do l = bounds%begl, bounds%endl
+          mhe_norm = 0._r8
+          do c = lun%coli(l), lun%colf(l)
+             if (col%is_hillslope_column(c)) then
+                mean_hillslope_elevation(l) = mean_hillslope_elevation(l) &
+                     + col%hill_elev(c)*col%hill_area(c)
+                mhe_norm = mhe_norm + col%hill_area(c)
+             endif
+          enddo
+          if (mhe_norm > 0) then
+             mean_hillslope_elevation(l) = mean_hillslope_elevation(l)/mhe_norm
+          endif
+       enddo
+    endif
+       
     ! This could operate over a filter like 'allc' in order to just operate over active
     ! points, but I'm not sure that would speed things up much, and would require passing
     ! in this additional filter.
+
     do c = bounds%begc, bounds%endc
        if (.not. this%needs_downscaling_col(c)) then
+          ! For any point that isn't already set to be downscaled, set its topo value to the
+          ! atmosphere's topographic height. This is important for the hillslope block
+          ! below. For non-hillslope columns, this shouldn't matter, but is useful if
+          ! topo_col is written to the history file.
           g = col%gridcell(c)
           this%topo_col(c) = atm_topo(g)
        end if
+       ! If needs_downscaling_col was already set, then that implies
+       ! that topo_col was previously set by update_glc2lnd_topo.
+       ! In that case, topo_col should be used as a starting point,
+       ! rather than the atmosphere's topo value.
+       if (col%is_hillslope_column(c) .and. downscale_hillslope_meteorology) then
+          l = col%landunit(c)
+          this%topo_col(c) =  this%topo_col(c) &
+               + (col%hill_elev(c) - mean_hillslope_elevation(l))
+          this%needs_downscaling_col(c) = .true.
+       endif
     end do
 
     call glc_behavior%update_glc_classes(bounds, this%topo_col(begc:endc))
@@ -268,7 +307,7 @@ contains
     !
     ! The main reason it's important to have this filter (as opposed to just doing the
     ! downscaling for all columns) is because of downscaled fields that are normalized
-    ! (like longwave radiation): Consider a gridcell with a glc_mec column and a
+    ! (like longwave radiation): Consider a gridcell with a glacier column and a
     ! vegetated column (outside of the icemask, so the vegetated column doesn't have its
     ! topographic height explicitly set). If we called the downscaling code for all
     ! columns, the longwave radiation would get adjusted over the vegetated column. This

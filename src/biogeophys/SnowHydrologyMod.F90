@@ -18,12 +18,12 @@ module SnowHydrologyMod
   ! !USES:
   use shr_kind_mod    , only : r8 => shr_kind_r8
   use shr_log_mod     , only : errMsg => shr_log_errMsg
-  use decompMod       , only : bounds_type
+  use decompMod       , only : bounds_type, subgrid_level_column
   use abortutils      , only : endrun
   use column_varcon   , only : icol_roof, icol_sunwall, icol_shadewall
-  use clm_varpar      , only : nlevsno, nlevsoi, nlevgrnd
+  use clm_varpar      , only : nlevsno, nlevsoi, nlevgrnd, nlevmaxurbgrnd
   use clm_varctl      , only : iulog, use_subgrid_fluxes
-  use clm_varcon      , only : namec, h2osno_max, hfus, denh2o, denice, rpi, spval, tfrz
+  use clm_varcon      , only : h2osno_max, hfus, denh2o, denice, rpi, spval, tfrz
   use clm_varcon      , only : cpice, cpliq
   use atm2lndType     , only : atm2lnd_type
   use AerosolMod      , only : aerosol_type, AerosolFluxes
@@ -36,7 +36,7 @@ module SnowHydrologyMod
   use LandunitType    , only : landunit_type, lun
   use TopoMod, only : topo_type
   use ColumnType      , only : column_type, col
-  use landunit_varcon , only : istsoil, istdlak, istsoil, istwet, istice_mec, istcrop
+  use landunit_varcon , only : istsoil, istdlak, istsoil, istwet, istice, istcrop
   use clm_time_manager, only : get_step_size_real, get_nstep
   use filterColMod    , only : filter_col_type, col_filter_from_filter_and_logical_array
   use LakeCon         , only : lsadz
@@ -70,11 +70,23 @@ module SnowHydrologyMod
   public :: SnowHydrologySetControlForTesting ! Set some of the control settings
 
   type, private :: params_type
-      real(r8) :: wimp          ! Water impremeable if porosity less than wimp (unitless)
-      real(r8) :: ssi           ! Irreducible water saturation of snow (unitless)
-      real(r8) :: drift_gs      ! Wind drift compaction / grain size (fixed value for now) (unitless)
-      real(r8) :: eta0_anderson ! Viscosity coefficent from Anderson1976 (kg*s/m2)
-      real(r8) :: eta0_vionnet  ! Viscosity coefficent from Vionnet2012 (kg*s/m2)
+      real(r8) :: wimp                  ! Water impremeable if porosity less than wimp (unitless)
+      real(r8) :: ssi                   ! Irreducible water saturation of snow (unitless)
+      real(r8) :: drift_gs              ! Wind drift compaction / grain size (fixed value for now) (unitless)
+      real(r8) :: eta0_anderson         ! Viscosity coefficent from Anderson1976 (kg*s/m2)
+      real(r8) :: eta0_vionnet          ! Viscosity coefficent from Vionnet2012 (kg*s/m2)
+      real(r8) :: wind_snowcompact_fact ! Reference wind above which fresh snow density is (substantially) increased (m/s)
+      real(r8) :: rho_max               ! Wind drift compaction / maximum density (kg/m3)
+      real(r8) :: tau_ref               ! Wind drift compaction / reference time (48*3600) (s)
+      real(r8) :: scvng_fct_mlt_sf      ! Scaling factor modifying scavenging factors for BC, OC, and dust species inclusion in meltwater (-)
+      real(r8) :: scvng_fct_mlt_bcphi   ! scavenging factor for hydrophillic BC inclusion in meltwater  [frc]
+      real(r8) :: scvng_fct_mlt_bcpho   ! scavenging factor for hydrophobic BC inclusion in meltwater  [frc]
+      real(r8) :: scvng_fct_mlt_dst1    ! scavenging factor for dust species 1 inclusion in meltwater  [frc]
+      real(r8) :: scvng_fct_mlt_dst2    ! scavenging factor for dust species 2 inclusion in meltwater  [frc]
+      real(r8) :: scvng_fct_mlt_dst3    ! scavenging factor for dust species 3 inclusion in meltwater  [frc]
+      real(r8) :: scvng_fct_mlt_dst4    ! scavenging factor for dust species 4 inclusion in meltwater  [frc]
+      real(r8) :: ceta                  ! Overburden compaction constant (kg/m3)
+      real(r8) :: snw_rds_min  ! minimum allowed snow effective radius (also cold "fresh snow" value) [microns]
   end type params_type
   type(params_type), private ::  params_inst
 
@@ -115,14 +127,8 @@ module SnowHydrologyMod
   !  7= dust species 3
   !  8= dust species 4
   !
-  real(r8), public, parameter :: scvng_fct_mlt_bcphi = 0.20_r8 ! scavenging factor for hydrophillic BC inclusion in meltwater [frc]
-  real(r8), public, parameter :: scvng_fct_mlt_bcpho = 0.03_r8 ! scavenging factor for hydrophobic BC inclusion in meltwater  [frc]
   real(r8), public, parameter :: scvng_fct_mlt_ocphi = 0.20_r8 ! scavenging factor for hydrophillic OC inclusion in meltwater [frc]
   real(r8), public, parameter :: scvng_fct_mlt_ocpho = 0.03_r8 ! scavenging factor for hydrophobic OC inclusion in meltwater  [frc]
-  real(r8), public, parameter :: scvng_fct_mlt_dst1  = 0.02_r8 ! scavenging factor for dust species 1 inclusion in meltwater  [frc]
-  real(r8), public, parameter :: scvng_fct_mlt_dst2  = 0.02_r8 ! scavenging factor for dust species 2 inclusion in meltwater  [frc]
-  real(r8), public, parameter :: scvng_fct_mlt_dst3  = 0.01_r8 ! scavenging factor for dust species 3 inclusion in meltwater  [frc]
-  real(r8), public, parameter :: scvng_fct_mlt_dst4  = 0.01_r8 ! scavenging factor for dust species 4 inclusion in meltwater  [frc]
 
   ! The following are public for the sake of unit testing
   integer, parameter, public :: LoTmpDnsSlater2017            = 2    ! For temperature below -15C use equation from Slater 2017
@@ -147,7 +153,6 @@ module SnowHydrologyMod
   integer  :: new_snow_density            = LoTmpDnsSlater2017 ! Snow density type
   real(r8) :: upplim_destruct_metamorph   = 100.0_r8           ! Upper Limit on Destructive Metamorphism Compaction [kg/m3]
   real(r8) :: overburden_compress_Tfactor = 0.08_r8            ! snow compaction overburden exponential factor (1/K)
-  real(r8) :: min_wind_snowcompact        = 5._r8              ! minimum wind speed tht results in compaction (m/s)
 
   ! ------------------------------------------------------------------------
   ! Parameters controlling the resetting of the snow pack
@@ -207,7 +212,7 @@ contains
     namelist /clm_snowhydrology_inparm/ &
          wind_dependent_snow_density, snow_overburden_compaction_method, &
          lotmp_snowdensity_method, upplim_destruct_metamorph, &
-         overburden_compress_Tfactor, min_wind_snowcompact, &
+         overburden_compress_Tfactor, &
          reset_snow, reset_snow_glc, reset_snow_glc_ela, &
          snow_dzmin_1, snow_dzmax_l_1, snow_dzmax_u_1, &
          snow_dzmin_2, snow_dzmax_l_2, snow_dzmax_u_2
@@ -243,7 +248,6 @@ contains
     call shr_mpi_bcast (lotmp_snowdensity_method   , mpicom)
     call shr_mpi_bcast (upplim_destruct_metamorph  , mpicom)
     call shr_mpi_bcast (overburden_compress_Tfactor, mpicom)
-    call shr_mpi_bcast (min_wind_snowcompact       , mpicom)
     call shr_mpi_bcast (reset_snow                 , mpicom)
     call shr_mpi_bcast (reset_snow_glc             , mpicom)
     call shr_mpi_bcast (reset_snow_glc_ela         , mpicom)
@@ -305,6 +309,30 @@ contains
     call readNcdioScalar(ncid, 'eta0_anderson', subname, params_inst%eta0_anderson)
     ! Viscosity coefficent from Vionnet2012 (kg*s/m2)
     call readNcdioScalar(ncid, 'eta0_vionnet', subname, params_inst%eta0_vionnet)
+    ! Reference wind above which fresh snow density is (substantially) increased (m/s)
+    call readNcdioScalar(ncid, 'wind_snowcompact_fact', subname, params_inst%wind_snowcompact_fact)
+    ! Wind drift compaction / maximum density (kg/m3)
+    call readNcdioScalar(ncid, 'rho_max', subname, params_inst%rho_max)
+    ! Wind drift compaction / reference time (48*3600) (s)
+    call readNcdioScalar(ncid, 'tau_ref', subname, params_inst%tau_ref)
+    ! Scaling factor modifying scavenging factors for BC, OC, and dust species inclusion in meltwater (-)
+    call readNcdioScalar(ncid, 'scvng_fct_mlt_sf', subname, params_inst%scvng_fct_mlt_sf)
+    ! scavenging factor for hydrophillic BC inclusion in meltwater  [frc]
+    call readNcdioScalar(ncid, 'scvng_fct_mlt_bcphi', subname, params_inst%scvng_fct_mlt_bcphi)
+    ! scavenging factor for hydrophobic BC inclusion in meltwater  [frc]
+    call readNcdioScalar(ncid, 'scvng_fct_mlt_bcpho', subname, params_inst%scvng_fct_mlt_bcpho)
+    ! scavenging factor for dust species 1 inclusion in meltwater  [frc]
+    call readNcdioScalar(ncid, 'scvng_fct_mlt_dst1', subname, params_inst%scvng_fct_mlt_dst1)
+    ! scavenging factor for dust species 2 inclusion in meltwater  [frc]
+    call readNcdioScalar(ncid, 'scvng_fct_mlt_dst2', subname, params_inst%scvng_fct_mlt_dst2)
+    ! scavenging factor for dust species 3 inclusion in meltwater  [frc]
+    call readNcdioScalar(ncid, 'scvng_fct_mlt_dst3', subname, params_inst%scvng_fct_mlt_dst3)
+    ! scavenging factor for dust species 4 inclusion in meltwater  [frc]
+    call readNcdioScalar(ncid, 'scvng_fct_mlt_dst4', subname, params_inst%scvng_fct_mlt_dst4)
+    ! Overburden compaction constant (kg/m3)
+    call readNcdioScalar(ncid, 'ceta', subname, params_inst%ceta)
+    ! minimum allowed snow effective radius (also cold "fresh snow" value) [microns]
+    call readNcdioScalar(ncid, 'snw_rds_min', subname, params_inst%snw_rds_min)
 
   end subroutine readParams
 
@@ -370,7 +398,8 @@ contains
          swe_old             = b_waterdiagnostic_inst%swe_old_col(begc:endc,:), &
          frac_sno            = b_waterdiagnostic_inst%frac_sno_col(begc:endc), &
          frac_sno_eff        = b_waterdiagnostic_inst%frac_sno_eff_col(begc:endc), &
-         snow_depth          = b_waterdiagnostic_inst%snow_depth_col(begc:endc))
+         snow_depth          = b_waterdiagnostic_inst%snow_depth_col(begc:endc), &
+         snomelt_accum       = b_waterdiagnostic_inst%snomelt_accum_col(begc:endc))
 
     do i = water_inst%bulk_and_tracers_beg, water_inst%bulk_and_tracers_end
        associate(w => water_inst%bulk_and_tracers(i))
@@ -394,7 +423,7 @@ contains
        scf_method, &
        dtime, lun_itype_col, urbpoi, snl, bifall, h2osno_total, h2osoi_ice, h2osoi_liq, &
        qflx_snow_grnd, qflx_snow_drain, &
-       dz, int_snow, swe_old, frac_sno, frac_sno_eff, snow_depth)
+       dz, int_snow, swe_old, frac_sno, frac_sno_eff, snow_depth, snomelt_accum)
     !
     ! !DESCRIPTION:
     ! Update various snow-related diagnostic quantities to account for new snow
@@ -421,6 +450,7 @@ contains
     real(r8)                  , intent(inout) :: frac_sno( bounds%begc: )        ! fraction of ground covered by snow (0 to 1)
     real(r8)                  , intent(inout) :: frac_sno_eff( bounds%begc: )    ! eff. fraction of ground covered by snow (0 to 1)
     real(r8)                  , intent(inout) :: snow_depth( bounds%begc: )      ! snow height (m)
+    real(r8)                  , intent(inout) :: snomelt_accum( bounds%begc: )   ! accumulated col snow melt for z0m calculation (m H2O)
     !
     ! !LOCAL VARIABLES:
     integer  :: fc, c
@@ -449,6 +479,7 @@ contains
     SHR_ASSERT_FL((ubound(frac_sno, 1) == bounds%endc), sourcefile, __LINE__)
     SHR_ASSERT_FL((ubound(frac_sno_eff, 1) == bounds%endc), sourcefile, __LINE__)
     SHR_ASSERT_FL((ubound(snow_depth, 1) == bounds%endc), sourcefile, __LINE__)
+    SHR_ASSERT_FL((ubound(snomelt_accum, 1) == bounds%endc), sourcefile, __LINE__)
 
     associate( &
          begc => bounds%begc, &
@@ -475,6 +506,7 @@ contains
        ! all snow falls on ground, no snow on h2osfc (note that qflx_snow_h2osfc is
        ! currently set to 0 always in CanopyHydrologyMod)
        newsnow(c) = qflx_snow_grnd(c) * dtime
+       snomelt_accum(c) = max(0._r8, snomelt_accum(c) - newsnow(c) * 1.e-3_r8)
 
        ! update int_snow
        int_snow(c) = max(int_snow(c),h2osno_total(c)) !h2osno_total could be larger due to frost
@@ -792,6 +824,7 @@ contains
             h2osno_no_layers     = w%waterstate_inst%h2osno_no_layers_col(begc:endc), &
             h2osoi_ice           = w%waterstate_inst%h2osoi_ice_col(begc:endc,:), &
             h2osoi_liq           = w%waterstate_inst%h2osoi_liq_col(begc:endc,:))
+
        end associate
     end do
 
@@ -805,7 +838,8 @@ contains
          dz          = col%dz(begc:endc,:), &
          z           = col%z(begc:endc,:), &
          t_soisno    = temperature_inst%t_soisno_col(begc:endc,:), &
-         frac_iceold = b_waterdiagnostic_inst%frac_iceold_col(begc:endc,:))
+         frac_iceold = b_waterdiagnostic_inst%frac_iceold_col(begc:endc,:), &
+         snomelt_accum = b_waterdiagnostic_inst%snomelt_accum_col(begc:endc))
 
     ! intitialize SNICAR variables for fresh snow:
     call aerosol_inst%ResetFilter( &
@@ -919,7 +953,7 @@ contains
 
   !-----------------------------------------------------------------------
   subroutine Bulk_InitializeSnowPack(bounds, snowpack_initialized_filterc, &
-       forc_t, snow_depth, snl, zi, dz, z, t_soisno, frac_iceold)
+       forc_t, snow_depth, snl, zi, dz, z, t_soisno, frac_iceold, snomelt_accum)
     !
     ! !DESCRIPTION:
     ! Initialize an explicit snow pack in columns where this is warranted based on snow depth
@@ -939,6 +973,7 @@ contains
     real(r8)                       , intent(inout) :: z( bounds%begc: , -nlevsno+1: )           ! layer depth (m)
     real(r8)                       , intent(inout) :: t_soisno( bounds%begc: , -nlevsno+1: )    ! soil temperature (Kelvin)
     real(r8)                       , intent(inout) :: frac_iceold( bounds%begc: , -nlevsno+1: ) ! fraction of ice relative to the tot water
+    real(r8)                       , intent(inout) :: snomelt_accum( bounds%begc: )             ! accumulated col snow melt for z0m calculation (m H2O)
     !
     ! !LOCAL VARIABLES:
     integer :: fc, c
@@ -949,11 +984,12 @@ contains
     SHR_ASSERT_FL((ubound(forc_t, 1) == bounds%endc), sourcefile, __LINE__)
     SHR_ASSERT_FL((ubound(snow_depth, 1) == bounds%endc), sourcefile, __LINE__)
     SHR_ASSERT_FL((ubound(snl, 1) == bounds%endc), sourcefile, __LINE__)
-    SHR_ASSERT_ALL_FL((ubound(zi) == [bounds%endc, nlevgrnd]), sourcefile, __LINE__)
-    SHR_ASSERT_ALL_FL((ubound(dz) == [bounds%endc, nlevgrnd]), sourcefile, __LINE__)
-    SHR_ASSERT_ALL_FL((ubound(z) == [bounds%endc, nlevgrnd]), sourcefile, __LINE__)
-    SHR_ASSERT_ALL_FL((ubound(t_soisno) == [bounds%endc, nlevgrnd]), sourcefile, __LINE__)
+    SHR_ASSERT_ALL_FL((ubound(zi) == [bounds%endc, nlevmaxurbgrnd]), sourcefile, __LINE__)
+    SHR_ASSERT_ALL_FL((ubound(dz) == [bounds%endc, nlevmaxurbgrnd]), sourcefile, __LINE__)
+    SHR_ASSERT_ALL_FL((ubound(z) == [bounds%endc, nlevmaxurbgrnd]), sourcefile, __LINE__)
+    SHR_ASSERT_ALL_FL((ubound(t_soisno) == [bounds%endc, nlevmaxurbgrnd]), sourcefile, __LINE__)
     SHR_ASSERT_ALL_FL((ubound(frac_iceold) == [bounds%endc, nlevgrnd]), sourcefile, __LINE__)
+    SHR_ASSERT_ALL_FL((ubound(snomelt_accum, 1) == bounds%endc), sourcefile, __LINE__)
 
     do fc = 1, snowpack_initialized_filterc%num
        c = snowpack_initialized_filterc%indices(fc)
@@ -969,6 +1005,8 @@ contains
        ! This value of frac_iceold makes sense together with the state initialization:
        ! h2osoi_ice is non-zero, while h2osoi_liq is zero.
        frac_iceold(c,0) = 1._r8
+
+       snomelt_accum(c) = 0._r8
     end do
 
   end subroutine Bulk_InitializeSnowPack
@@ -1229,7 +1267,8 @@ contains
           write(iulog,*) "frac_sno_eff        = ", frac_sno_eff(c)
           write(iulog,*) "qflx_soliddew_to_top_layer*dtime = ", qflx_soliddew_to_top_layer(c)*dtime
           write(iulog,*) "qflx_solidevap_from_top_layer*dtime = ", qflx_solidevap_from_top_layer(c)*dtime
-          call endrun("In UpdateState_TopLayerFluxes, h2osoi_ice has gone significantly negative")
+          call endrun(subgrid_index=c, subgrid_level=subgrid_level_column, &
+               msg="In UpdateState_TopLayerFluxes, h2osoi_ice has gone significantly negative")
        end if
 
        if (h2osoi_liq(c,lev_top(c)) < 0._r8) then
@@ -1242,7 +1281,8 @@ contains
           write(iulog,*) "qflx_liq_grnd*dtime  = ", qflx_liq_grnd(c)*dtime
           write(iulog,*) "qflx_liqdew_to_top_layer*dtime  = ", qflx_liqdew_to_top_layer(c)*dtime
           write(iulog,*) "qflx_liqevap_from_top_layer*dtime = ", qflx_liqevap_from_top_layer(c)*dtime
-          call endrun("In UpdateState_TopLayerFluxes, h2osoi_liq has gone significantly negative")
+          call endrun(subgrid_index=c, subgrid_level=subgrid_level_column, &
+               msg="In UpdateState_TopLayerFluxes, h2osoi_liq has gone significantly negative")
        end if
 
     end do
@@ -1393,6 +1433,7 @@ contains
        end do
 
        call CalcTracerFromBulkMasked( &
+            subgrid_level = subgrid_level_column, &
             lb            = begc, &
             num_pts       = num_snowc, &
             filter_pts    = filter_snowc, &
@@ -1559,7 +1600,8 @@ contains
 
              ! BCPHI:
              ! 1. flux with meltwater:
-             qout_bc_phi(c) = qflx_snow_percolation(c,j)*scvng_fct_mlt_bcphi*(mss_bcphi(c,j)/mss_liqice)
+             qout_bc_phi(c) = qflx_snow_percolation(c,j)*params_inst%scvng_fct_mlt_sf* &
+                              params_inst%scvng_fct_mlt_bcphi*(mss_bcphi(c,j)/mss_liqice)
              if (qout_bc_phi(c)*dtime > mss_bcphi(c,j)) then
                 qout_bc_phi(c) = mss_bcphi(c,j)/dtime
                 mss_bcphi(c,j) = 0._r8
@@ -1570,7 +1612,8 @@ contains
 
              ! BCPHO:
              ! 1. flux with meltwater:
-             qout_bc_pho(c) = qflx_snow_percolation(c,j)*scvng_fct_mlt_bcpho*(mss_bcpho(c,j)/mss_liqice)
+             qout_bc_pho(c) = qflx_snow_percolation(c,j)*params_inst%scvng_fct_mlt_sf* &
+                              params_inst%scvng_fct_mlt_bcpho*(mss_bcpho(c,j)/mss_liqice)
              if (qout_bc_pho(c)*dtime > mss_bcpho(c,j)) then
                 qout_bc_pho(c) = mss_bcpho(c,j)/dtime
                 mss_bcpho(c,j) = 0._r8
@@ -1581,7 +1624,8 @@ contains
 
              ! OCPHI:
              ! 1. flux with meltwater:
-             qout_oc_phi(c) = qflx_snow_percolation(c,j)*scvng_fct_mlt_ocphi*(mss_ocphi(c,j)/mss_liqice)
+             qout_oc_phi(c) = qflx_snow_percolation(c,j)*params_inst%scvng_fct_mlt_sf* &
+                              scvng_fct_mlt_ocphi*(mss_ocphi(c,j)/mss_liqice)
              if (qout_oc_phi(c)*dtime > mss_ocphi(c,j)) then
                 qout_oc_phi(c) = mss_ocphi(c,j)/dtime
                 mss_ocphi(c,j) = 0._r8
@@ -1592,7 +1636,8 @@ contains
 
              ! OCPHO:
              ! 1. flux with meltwater:
-             qout_oc_pho(c) = qflx_snow_percolation(c,j)*scvng_fct_mlt_ocpho*(mss_ocpho(c,j)/mss_liqice)
+             qout_oc_pho(c) = qflx_snow_percolation(c,j)*params_inst%scvng_fct_mlt_sf* &
+                              scvng_fct_mlt_ocpho*(mss_ocpho(c,j)/mss_liqice)
              if (qout_oc_pho(c)*dtime > mss_ocpho(c,j)) then
                 qout_oc_pho(c) = mss_ocpho(c,j)/dtime
                 mss_ocpho(c,j) = 0._r8
@@ -1603,7 +1648,8 @@ contains
 
              ! DUST 1:
              ! 1. flux with meltwater:
-             qout_dst1(c) = qflx_snow_percolation(c,j)*scvng_fct_mlt_dst1*(mss_dst1(c,j)/mss_liqice)
+             qout_dst1(c) = qflx_snow_percolation(c,j)*params_inst%scvng_fct_mlt_sf* &
+                            params_inst%scvng_fct_mlt_dst1*(mss_dst1(c,j)/mss_liqice)
              if (qout_dst1(c)*dtime > mss_dst1(c,j)) then
                 qout_dst1(c) = mss_dst1(c,j)/dtime
                 mss_dst1(c,j) = 0._r8
@@ -1614,7 +1660,8 @@ contains
 
              ! DUST 2:
              ! 1. flux with meltwater:
-             qout_dst2(c) = qflx_snow_percolation(c,j)*scvng_fct_mlt_dst2*(mss_dst2(c,j)/mss_liqice)
+             qout_dst2(c) = qflx_snow_percolation(c,j)*params_inst%scvng_fct_mlt_sf* &
+                            params_inst%scvng_fct_mlt_dst2*(mss_dst2(c,j)/mss_liqice)
              if (qout_dst2(c)*dtime > mss_dst2(c,j)) then
                 qout_dst2(c) = mss_dst2(c,j)/dtime
                 mss_dst2(c,j) = 0._r8
@@ -1625,7 +1672,8 @@ contains
 
              ! DUST 3:
              ! 1. flux with meltwater:
-             qout_dst3(c) = qflx_snow_percolation(c,j)*scvng_fct_mlt_dst3*(mss_dst3(c,j)/mss_liqice)
+             qout_dst3(c) = qflx_snow_percolation(c,j)*params_inst%scvng_fct_mlt_sf* &
+                            params_inst%scvng_fct_mlt_dst3*(mss_dst3(c,j)/mss_liqice)
              if (qout_dst3(c)*dtime > mss_dst3(c,j)) then
                 qout_dst3(c) = mss_dst3(c,j)/dtime
                 mss_dst3(c,j) = 0._r8
@@ -1636,7 +1684,8 @@ contains
 
              ! DUST 4:
              ! 1. flux with meltwater:
-             qout_dst4(c) = qflx_snow_percolation(c,j)*scvng_fct_mlt_dst4*(mss_dst4(c,j)/mss_liqice)
+             qout_dst4(c) = qflx_snow_percolation(c,j)*params_inst%scvng_fct_mlt_sf* &
+                            params_inst%scvng_fct_mlt_dst4*(mss_dst4(c,j)/mss_liqice)
              if (qout_dst4(c)*dtime > mss_dst4(c,j)) then
                 qout_dst4(c) = mss_dst4(c,j)/dtime
                 mss_dst4(c,j) = 0._r8
@@ -2813,14 +2862,14 @@ contains
                 if ( abs(dztot(c)) > 1.e-10_r8) then
                    write(iulog,*)'Inconsistency in SnowDivision_Lake! c, remainders', &
                         'dztot = ',c,dztot(c)
-                   call endrun(decomp_index=c, clmlevel=namec, msg=errmsg(sourcefile, __LINE__))
+                   call endrun(subgrid_index=c, subgrid_level=subgrid_level_column, msg=errmsg(sourcefile, __LINE__))
                 end if
 
                 do wi = water_inst%bulk_and_tracers_beg, water_inst%bulk_and_tracers_end
                    if ( abs(snwicetot(wi,c)) > 1.e-7_r8 .or. abs(snwliqtot(wi,c)) > 1.e-7_r8 ) then
                       write(iulog,*)'Inconsistency in SnowDivision_Lake! wi, c, remainders', &
                            'snwicetot, snwliqtot = ',wi,c,snwicetot(wi,c),snwliqtot(wi,c)
-                      call endrun(decomp_index=c, clmlevel=namec, msg=errmsg(sourcefile, __LINE__))
+                      call endrun(subgrid_index=c, subgrid_level=subgrid_level_column, msg=errmsg(sourcefile, __LINE__))
                    end if
                 end do
              end if
@@ -2922,9 +2971,9 @@ contains
 
     associate( &
          snl => col%snl,   & ! Output: [integer (:)    ]  number of snow layers
-         dz  => col%dz,    & ! Output: [real(r8) (:,:) ]  layer thickness (m)  (-nlevsno+1:nlevgrnd)
-         z   => col%z,     & ! Output: [real(r8) (:,:) ]  layer depth (m) (-nlevsno+1:nlevgrnd)
-         zi  => col%zi     & ! Output: [real(r8) (:,:) ]  interface level below a "z" level (m) (-nlevsno+0:nlevgrnd)
+         dz  => col%dz,    & ! Output: [real(r8) (:,:) ]  layer thickness (m)  (-nlevsno+1:nlevmaxurbgrnd)
+         z   => col%z,     & ! Output: [real(r8) (:,:) ]  layer depth (m) (-nlevsno+1:nlevmaxurbgrnd)
+         zi  => col%zi     & ! Output: [real(r8) (:,:) ]  interface level below a "z" level (m) (-nlevsno+0:nlevmaxurbgrnd)
     )
 
     allocate(dzmin(1:nlevsno))
@@ -3279,7 +3328,7 @@ contains
 
     ! Always keep at least this fraction of the bottom snow layer when doing snow capping
     ! This needs to be slightly greater than 0 to avoid roundoff problems
-    real(r8), parameter :: min_snow_to_keep = 1.e-9  ! fraction of bottom snow layer to keep with capping
+    real(r8), parameter :: min_snow_to_keep = 1.e-3_r8  ! fraction of bottom snow layer to keep with capping
 
     character(len=*), parameter :: subname = 'BulkFlux_SnowCappingFluxes'
     !-----------------------------------------------------------------------
@@ -3406,12 +3455,12 @@ contains
        do fc = 1, num_snowc
           c = filter_snowc(fc)
           l = col%landunit(c)
-          if ((lun%itype(l) /= istice_mec) .and. &
+          if ((lun%itype(l) /= istice) .and. &
                reset_snow .and. &
                (h2osno(c) > reset_snow_h2osno)) then
              h2osno_excess(c) = h2osno(c) - reset_snow_h2osno
              apply_runoff(c) = .false.
-          else if ((lun%itype(l) == istice_mec) .and. &
+          else if ((lun%itype(l) == istice) .and. &
                reset_snow_glc .and. &
                (h2osno(c) > reset_snow_h2osno) .and. &
                (topo(c) <= reset_snow_glc_ela)) then
@@ -3478,6 +3527,7 @@ contains
          )
 
     call CalcTracerFromBulk( &
+         subgrid_level = subgrid_level_column, &
          lb            = begc, &
          num_pts       = snow_capping_filterc%num, &
          filter_pts    = snow_capping_filterc%indices, &
@@ -3487,6 +3537,7 @@ contains
          tracer_val    = trac_qflx_snwcp_ice(begc:endc))
 
     call CalcTracerFromBulk( &
+         subgrid_level = subgrid_level_column, &
          lb            = begc, &
          num_pts       = snow_capping_filterc%num, &
          filter_pts    = snow_capping_filterc%indices, &
@@ -3496,6 +3547,7 @@ contains
          tracer_val    = trac_qflx_snwcp_liq(begc:endc))
 
     call CalcTracerFromBulk( &
+         subgrid_level = subgrid_level_column, &
          lb            = begc, &
          num_pts       = snow_capping_filterc%num, &
          filter_pts    = snow_capping_filterc%indices, &
@@ -3505,6 +3557,7 @@ contains
          tracer_val    = trac_qflx_snwcp_discarded_ice(begc:endc))
 
     call CalcTracerFromBulk( &
+         subgrid_level = subgrid_level_column, &
          lb            = begc, &
          num_pts       = snow_capping_filterc%num, &
          filter_pts    = snow_capping_filterc%indices, &
@@ -3558,7 +3611,7 @@ contains
        if (h2osoi_ice_bottom(c) < 0._r8 .or. h2osoi_liq_bottom(c) < 0._r8 ) then
           write(iulog,*)'ERROR: capping procedure failed (negative mass remaining) c = ',c
           write(iulog,*)'h2osoi_ice_bottom = ', h2osoi_ice_bottom(c), ' h2osoi_liq_bottom = ', h2osoi_liq_bottom(c)
-          call endrun(decomp_index=c, clmlevel=namec, msg=errmsg(sourcefile, __LINE__))
+          call endrun(subgrid_index=c, subgrid_level=subgrid_level_column, msg=errmsg(sourcefile, __LINE__))
        end if
 
     end do
@@ -3698,7 +3751,8 @@ contains
        ! Density offset for wind-driven compaction, initial ideas based on Liston et. al (2007) J. Glaciology,
        ! 53(181), 241-255. Modified for a continuous wind impact and slightly more sensitive
        ! to wind - Andrew Slater, 2016
-          bifall(c) = bifall(c) + (266.861_r8 * ((1._r8 + TANH(forc_wind(g)/5.0_r8))/2._r8)**8.8_r8)
+          bifall(c) = bifall(c) + (266.861_r8 * ((1._r8 + &
+                      TANH(forc_wind(g)/params_inst%wind_snowcompact_fact))/2._r8)**8.8_r8)
        end if
 
     end do
@@ -3763,7 +3817,6 @@ contains
     real(r8) :: f1, f2                          ! overburden compaction modifiers to viscosity
     real(r8) :: eta                             ! Viscosity
 
-    real(r8), parameter :: ceta = 450._r8       ! overburden compaction constant [kg/m3]
     real(r8), parameter :: aeta = 0.1_r8        ! overburden compaction constant [1/K]
     real(r8), parameter :: beta = 0.023_r8      ! overburden compaction constant [m3/kg]
 
@@ -3772,7 +3825,7 @@ contains
 
     f1 = 1._r8 / (1._r8 + 60._r8 * h2osoi_liq / (denh2o * dz))
     f2 = 4.0_r8 ! currently fixed to maximum value, holds in absence of angular grains
-    eta = f1*f2*(bi/ceta)*exp(aeta*td + beta*bi)*params_inst%eta0_vionnet
+    eta = f1*f2*(bi/params_inst%ceta)*exp(aeta*td + beta*bi)*params_inst%eta0_vionnet
     compaction_rate = -(burden+wx/2._r8) / eta
 
   end function OverburdenCompactionVionnet2012
@@ -3811,9 +3864,7 @@ contains
     real(r8) :: tau_inverse ! Inverse of the effective time scale [1/s]
 
     real(r8), parameter :: rho_min = 50._r8      ! wind drift compaction / minimum density [kg/m3]
-    real(r8), parameter :: rho_max = 350._r8     ! wind drift compaction / maximum density [kg/m3]
     real(r8), parameter :: drift_sph = 1.0_r8    ! wind drift compaction / sphericity
-    real(r8), parameter :: tau_ref = 48._r8 * 3600._r8  ! wind drift compaction / reference time [s]
 
     character(len=*), parameter :: subname = 'WindDriftCompaction'
     !-----------------------------------------------------------------------
@@ -3830,8 +3881,8 @@ contains
           ! the pseudo-node for the sake of the following calculation
           zpseudo = zpseudo + 0.5_r8 * dz * (3.25_r8 - SI)
           gamma_drift = SI*exp(-zpseudo/0.1_r8)
-          tau_inverse = gamma_drift / tau_ref
-          compaction_rate = -max(0.0_r8, rho_max-bi) * tau_inverse
+          tau_inverse = gamma_drift / params_inst%tau_ref
+          compaction_rate = -max(0.0_r8, params_inst%rho_max-bi) * tau_inverse
           ! Further increase zpseudo to the bottom of the pseudo-node for
           ! the sake of calculations done on the underlying layer (i.e.,
           ! the next time through the j loop).
@@ -3900,7 +3951,6 @@ contains
     ! Calculate the mass weighted snow radius when two layers are combined
     !
     ! !USES:
-    use AerosolMod   , only : snw_rds_min
     use SnowSnicarMod, only : snw_rds_max
     implicit none
     ! !ARGUMENTS:
@@ -3915,8 +3965,8 @@ contains
 
     if (      mass_weighted_snowradius > snw_rds_max ) then
        mass_weighted_snowradius = snw_rds_max
-    else if ( mass_weighted_snowradius < snw_rds_min ) then
-       mass_weighted_snowradius = snw_rds_min
+    else if ( mass_weighted_snowradius < params_inst%snw_rds_min ) then
+       mass_weighted_snowradius = params_inst%snw_rds_min
     end if
   end function MassWeightedSnowRadius
 
@@ -3970,8 +4020,8 @@ contains
     ! !ARGUMENTS:
     logical, intent(in), optional :: set_winddep_snowdensity  ! Set wind dependent snow density
     integer, intent(in), optional :: set_new_snow_density     ! snow density method
-    logical, intent(in), optional :: set_reset_snow           ! whether to reset the snow pack, non-glc_mec points
-    logical, intent(in), optional :: set_reset_snow_glc       ! whether to reset the snow pack, glc_mec points
+    logical, intent(in), optional :: set_reset_snow           ! whether to reset the snow pack, non-glacier points
+    logical, intent(in), optional :: set_reset_snow_glc       ! whether to reset the snow pack, glacier points
     real(r8), intent(in), optional :: set_reset_snow_glc_ela  ! elevation below which to reset the snow pack if set_reset_snow_glc is true (m)
     !-----------------------------------------------------------------------
     if (present(set_winddep_snowdensity)) then
@@ -3995,6 +4045,8 @@ contains
     snow_dzmax_l_2 = 0.07_r8  ! get set in
     snow_dzmax_u_1 = 0.02_r8  ! user_nl_clm
     snow_dzmax_u_2 = 0.05_r8
+
+    params_inst%wind_snowcompact_fact = 5.0_r8
 
   end subroutine SnowHydrologySetControlForTesting
 

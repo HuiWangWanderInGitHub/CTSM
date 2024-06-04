@@ -10,9 +10,9 @@ module UrbanAlbedoMod
   use shr_kind_mod      , only : r8 => shr_kind_r8
   use shr_sys_mod       , only : shr_sys_flush 
   use shr_log_mod       , only : errMsg => shr_log_errMsg
-  use decompMod         , only : bounds_type
+  use decompMod         , only : bounds_type, subgrid_level_landunit
   use clm_varpar        , only : numrad
-  use clm_varcon        , only : isecspday, degpsec, namel
+  use clm_varcon        , only : isecspday, degpsec
   use clm_varctl        , only : iulog
   use abortutils        , only : endrun  
   use UrbanParamsType   , only : urbanparams_type
@@ -156,7 +156,12 @@ contains
          albgri             => surfalb_inst%albgri_col              , & ! Output: [real(r8) (:,:) ]  urban col ground albedo (diffuse)
          albd               => surfalb_inst%albd_patch              , & ! Output  [real(r8) (:,:) ]  urban pft surface albedo (direct)                         
          albi               => surfalb_inst%albi_patch              , & ! Output: [real(r8) (:,:) ]  urban pft surface albedo (diffuse)                        
-         
+! add new snicar albedo output for history files
+         albd_hst           => surfalb_inst%albd_hst_patch          , & ! Output:  [real(r8) (:,:) ]  surface albedo (direct) for history files
+         albi_hst           => surfalb_inst%albi_hst_patch          , & ! Output:  [real(r8) (:,:) ]  surface albedo (diffuse) for history files
+         albgrd_hst         => surfalb_inst%albgrd_hst_col          , & ! Output:  [real(r8) (:,:) ]  ground albedo (direct) for history files              
+         albgri_hst         => surfalb_inst%albgri_hst_col          , & ! Output:  [real(r8) (:,:) ]  ground albedo (diffuse) for history files
+! end add new snicar
          begl               => bounds%begl                          , &
          vf_sr              => urbanparams_inst%vf_sr               , & ! Input:  [real(r8) (:) ]  view factor of sky for road
          vf_sw              => urbanparams_inst%vf_sw               , & ! Input:  [real(r8) (:) ]  view factor of sky for one wall
@@ -418,12 +423,25 @@ contains
                   albgrd(c,ib) = sref_improad_dir(l,ib)
                   albgri(c,ib) = sref_improad_dif(l,ib)
                endif
+! add new snicar albedo variables for history fields
+               if (coszen(l) > 0._r8) then
+                  albgrd_hst(c,ib) = albgrd(c,ib)
+                  albgri_hst(c,ib) = albgri(c,ib)
+               end if
+! end add new snicar
             end do
             do fp = 1,num_urbanp
                p = filter_urbanp(fp)
                c = patch%column(p)
+               l = patch%landunit(p)
                albd(p,ib) = albgrd(c,ib)
                albi(p,ib) = albgri(c,ib)
+! add new snicar albedo variables for history fields
+               if (coszen(l) > 0._r8) then
+                  albd_hst(p,ib) = albd(p,ib)
+                  albi_hst(p,ib) = albi(p,ib)
+               end if
+! end add new snicar
             end do
          end do
       end if
@@ -623,7 +641,7 @@ contains
              if (abs(err1(l)) > 0.001_r8) then
                 write (iulog,*) 'urban direct beam solar radiation balance error',err1(l)
                 write (iulog,*) 'clm model is stopping'
-                call endrun(decomp_index=l, clmlevel=namel, msg=errmsg(sourcefile, __LINE__))
+                call endrun(subgrid_index=l, subgrid_level=subgrid_level_landunit, msg=errmsg(sourcefile, __LINE__))
              endif
           endif
        end do
@@ -660,12 +678,12 @@ contains
                 if (abs(err2(l)) > 0.0006_r8 ) then
                    write (iulog,*) 'urban road incident direct beam solar radiation error',err2(l)
                    write (iulog,*) 'clm model is stopping'
-                   call endrun(decomp_index=l, clmlevel=namel, msg=errmsg(sourcefile, __LINE__))
+                   call endrun(subgrid_index=l, subgrid_level=subgrid_level_landunit, msg=errmsg(sourcefile, __LINE__))
                 endif
                 if (abs(err3(l)) > 0.0006_r8 ) then
                    write (iulog,*) 'urban wall incident direct beam solar radiation error',err3(l)
                    write (iulog,*) 'clm model is stopping'
-                   call endrun(decomp_index=l, clmlevel=namel, msg=errmsg(sourcefile, __LINE__))
+                   call endrun(subgrid_index=l, subgrid_level=subgrid_level_landunit, msg=errmsg(sourcefile, __LINE__))
                 end if
              end if
           end do
@@ -737,7 +755,7 @@ contains
             if (abs(err(l)) > 0.001_r8) then
                write (iulog,*) 'urban diffuse solar radiation balance error',err(l) 
                write (iulog,*) 'clm model is stopping'
-               call endrun(decomp_index=l, clmlevel=namel, msg=errmsg(sourcefile, __LINE__))
+               call endrun(subgrid_index=l, subgrid_level=subgrid_level_landunit, msg=errmsg(sourcefile, __LINE__))
             endif
          end do
 
@@ -1136,7 +1154,7 @@ contains
                if (iter_dir >= n) then
                   write (iulog,*) 'urban net solar radiation error: no convergence, direct beam'
                   write (iulog,*) 'clm model is stopping'
-                  call endrun(decomp_index=l, clmlevel=namel, msg=errmsg(sourcefile, __LINE__))
+                  call endrun(subgrid_index=l, subgrid_level=subgrid_level_landunit, msg=errmsg(sourcefile, __LINE__))
                endif
 
                ! reflected diffuse
@@ -1208,7 +1226,7 @@ contains
                if (iter_dif >= n) then
                   write (iulog,*) 'urban net solar radiation error: no convergence, diffuse'
                   write (iulog,*) 'clm model is stopping'
-                  call endrun(decomp_index=l, clmlevel=namel, msg=errmsg(sourcefile, __LINE__))
+                  call endrun(subgrid_index=l, subgrid_level=subgrid_level_landunit, msg=errmsg(sourcefile, __LINE__))
                endif
 
                ! total reflected by canyon - sum of solar reflection to sky from canyon.
@@ -1254,7 +1272,7 @@ contains
                   write(iulog,*)' sref_canyon_dir = ',sref_canyon_dir(l)
                   write(iulog,*)' sref_canyon_dif = ',sref_canyon_dir(l)
                   write(iulog,*) 'clm model is stopping'
-                  call endrun(decomp_index=l, clmlevel=namel, msg=errmsg(sourcefile, __LINE__))
+                  call endrun(subgrid_index=l, subgrid_level=subgrid_level_landunit, msg=errmsg(sourcefile, __LINE__))
                endif
 
                ! canyon albedo

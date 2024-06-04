@@ -25,10 +25,9 @@ and
 
 https://github.com/ESCOMP/ctsm/wiki/Recommended-git-setup
 
-For support with model use, troubleshooting, etc., please use the CTSM forum (or other
-appropriate forum) here:
-
-https://xenforo.cgd.ucar.edu/cesm/
+For support with model use, troubleshooting, etc., please use the [CTSM
+forum](https://bb.cgd.ucar.edu/cesm/forums/ctsm-clm-mosart-rtm.134/) or other appropriate forum (e.g., for
+infrastructure/porting questions) through the [CESM forums](https://bb.cgd.ucar.edu/cesm/).
 
 To get updates on CTSM tags and important notes on CTSM developments
 join our low traffic email list:
@@ -44,15 +43,25 @@ CTSM code management is provided primarily by:
 Software engineering team:
 - [Erik Kluzek](https://github.com/ekluzek)
 - [Bill Sacks](https://github.com/billsacks)
-- [Mariana Vertenstein](https://github.com/mvertens)
-- [Negin Sobhani](https://github.com/negin513)
 - [Sam Levis](https://github.com/slevisconsulting)
+- [Adrianna Foster](https://github.com/adrifoster)
+- [Sam Rabin](https://github.com/samsrabin)
+- [Greg Lemieux](https://github.com/glemieux)
+- [Ryan Knox](https://github.com/rgknox)
 
 Science team:
-- [Dave Lawrence](https://github.com/dlawrenncar)
 - [Will Wieder](https://github.com/wwieder)
+- [Dave Lawrence](https://github.com/dlawrenncar)
 - [Danica Lombardozzi](https://github.com/danicalombardozzi)
 - [Keith Oleson](https://github.com/olyson)
 - [Sean Swenson](https://github.com/swensosc)
-- [Mike Barlage](https://github.com/barlage)
-- [Rosie Fisher](https://github.com/rosiealice)
+- [Peter Lawrence](https://github.com/lawrencepj1)
+- Gordon Bonan
+
+FATES Project:
+- https://github.com/NGEET/fates?tab=readme-ov-file
+
+Perturbed Parameter Experiment (PPE) Science team:
+- [Katie Dagon] (https://github.com/katiedagon)
+- [Daniel Kennedy] (https://github.com/djk2120)
+- [Linnea Hawkins] (https://github.com/linniahawkins)

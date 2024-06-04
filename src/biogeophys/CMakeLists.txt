@@ -8,10 +8,12 @@ list(APPEND clm_sources
   CanopyStateType.F90
   EnergyFluxType.F90
   GlacierSurfaceMassBalanceMod.F90
+  HillslopeHydrologyUtilsMod.F90
   HumanIndexMod.F90
   InfiltrationExcessRunoffMod.F90
   IrrigationMod.F90
   LakeCon.F90
+  LakeStateType.F90
   QSatMod.F90
   RootBiophysMod.F90
   SaturatedExcessRunoffMod.F90
@@ -23,7 +25,9 @@ list(APPEND clm_sources
   SoilStateType.F90
   SoilWaterRetentionCurveMod.F90
   SolarAbsorbedType.F90
+  PhotosynthesisMod.F90
   SurfaceAlbedoType.F90
+  OzoneBaseMod.F90
   TemperatureType.F90
   TotalWaterAndHeatMod.F90
   UrbanParamsType.F90

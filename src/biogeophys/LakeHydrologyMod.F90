@@ -164,7 +164,7 @@ contains
          t_soisno             =>  temperature_inst%t_soisno_col         , & ! Output: [real(r8) (:,:) ]  snow temperature (Kelvin)             
          dTdz_top             =>  temperature_inst%dTdz_top_col         , & ! Output: [real(r8) (:)   ]  temperature gradient in top layer K m-1] !TOD 
          snot_top             =>  temperature_inst%snot_top_col         , & ! Output: [real(r8) (:)   ]  snow temperature in top layer [K]  !TODO
-         t_sno_mul_mss        => temperature_inst%t_sno_mul_mss_col     , & ! Output: [real(r8) (:)   ]  col snow temperature multiplied by layer mass, layer sum (K * kg/m2) 
+         t_sno_mul_mss        =>  temperature_inst%t_sno_mul_mss_col     , & ! Output: [real(r8) (:)   ]  col snow temperature multiplied by layer mass, layer sum (K * kg/m2) 
          
          begwb                =>  b_waterbalance_inst%begwb_col             , & ! Input:  [real(r8) (:)   ]  water mass begining of the time step    
          endwb                =>  b_waterbalance_inst%endwb_col             , & ! Output: [real(r8) (:)   ]  water mass end of the time step         
@@ -351,6 +351,10 @@ contains
           end if
           if (h2osno_temp > 0._r8) then
              ! Assume that snow bulk density remains the same as before
+             ! NOTE (SSR, 2023-11-08): Small h2osno_temp can cause unrealistically high snow depths: see https://github.com/ESCOMP/CTSM/issues/2227. Suggested fix there is to replace this line with
+             !     snow_depth(c) = h2osno_no_layers(c) * min (snow_depth(c)/h2osno_temp, 1._r8/50._r8)
+             ! where 50 kg/m3 is suggested as a lower limit for snow density.
+             ! As this bug seemingly has never been encountered in CTSM, we are not yet implementing the fix.
              snow_depth(c) = snow_depth(c) * h2osno_no_layers(c) / h2osno_temp
           else
              ! Assume a constant snow bulk density = 250.
@@ -649,8 +653,8 @@ contains
     ! Determine ending water balance and volumetric soil water
 
     call ComputeWaterMassLake(bounds, num_lakec, filter_lakec, &
-         b_waterstate_inst, &
-         subtract_dynbal_baselines = .false., &
+         b_waterstate_inst, lakestate_inst, &
+         add_lake_water_and_subtract_dynbal_baselines = .false., &
          water_mass = endwb(bounds%begc:bounds%endc))
 
     do j = 1, nlevgrnd

@@ -120,10 +120,15 @@ contains
   !------------------------------------------------------------------------
   subroutine Init(this, bounds)
 
+    use clm_varctl     , only : use_fates, use_fates_sp
     class(vocemis_type) :: this
     type(bounds_type), intent(in)    :: bounds  
 
     if ( shr_megan_mechcomps_n > 0) then
+       if ( use_fates .and. (.not. use_fates_sp) ) then
+           call endrun( msg='ERROR: MEGAN currently does NOT work with FATES outside of FATES-SP mode (see github issue #115)'//&
+                     errMsg(sourcefile, __LINE__))
+       end if
        call this%InitAllocate(bounds) 
        call this%InitHistory(bounds)
        call this%InitCold(bounds)
@@ -580,7 +585,7 @@ contains
          !**********************************************************************
          !**********************************************************************
          
-         forc_solad    => atm2lnd_inst%forc_solad_grc           , & ! Input:  [real(r8) (:,:) ]  direct beam radiation (visible only)            
+         forc_solad    => atm2lnd_inst%forc_solad_downscaled_col, & ! Input:  [real(r8) (:,:) ]  direct beam radiation (visible only)            
          forc_solai    => atm2lnd_inst%forc_solai_grc           , & ! Input:  [real(r8) (:,:) ]  diffuse radiation     (visible only)            
          forc_pbot     => atm2lnd_inst%forc_pbot_downscaled_col , & ! Input:  [real(r8) (:)   ]  downscaled atmospheric pressure (Pa)                          
          forc_pco2     => atm2lnd_inst%forc_pco2_grc            , & ! Input:  [real(r8) (:)   ]  partial pressure co2 (Pa)                                             
@@ -675,7 +680,7 @@ contains
           ! Calculate PAR: multiply w/m2 by 4.6 to get umol/m2/s for par (added 8/14/02)
           !------------------------
           ! SUN:
-          par_sun    = (forc_solad(g,1)  + fsun(p)    * forc_solai(g,1))  * 4.6_r8
+          par_sun    = (forc_solad(c,1)  + fsun(p)    * forc_solai(g,1))  * 4.6_r8
           par24_sun  = (forc_solad24(p)  + fsun24(p)  * forc_solai24(p))  * 4.6_r8
           par240_sun = (forc_solad240(p) + fsun240(p) * forc_solai240(p)) * 4.6_r8
 
@@ -754,7 +759,7 @@ contains
 
              ! Activity factor for CO2 (only for isoprene)
              if (trim(meg_cmp%name) == 'isoprene') then 
-                co2_ppmv = 1.e6*forc_pco2(g)/forc_pbot(c)
+                co2_ppmv = 1.e6_r8*forc_pco2(g)/forc_pbot(c)
                 gamma_c = get_gamma_C(cisun_z(p,1),cisha_z(p,1),forc_pbot(c),fsun(p), co2_ppmv)
              else
                 gamma_c = 1._r8

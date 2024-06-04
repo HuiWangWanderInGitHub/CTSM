@@ -2,7 +2,7 @@ module initInterpMindistTestUtils
 
   ! Utilities to aid the testing of initInterpMindist
 
-  use pfunit_mod
+  use funit
   use shr_kind_mod , only : r8 => shr_kind_r8
   use initInterpMindist, only : subgrid_type, subgrid_special_indices_type
   use glcBehaviorMod, only: glc_behavior_type
@@ -21,7 +21,7 @@ module initInterpMindistTestUtils
        icol_vegetated_or_bare_soil = 10, &
        ilun_vegetated_or_bare_soil = 3, &
        ilun_crop = 4, &
-       ilun_landice_multiple_elevation_classes = 5)
+       ilun_landice = 5)
 
   ! value we can use for a special landunit; note that this just needs to differ from
   ! ilun_vegetated_or_bare_soil and from ilun_crop

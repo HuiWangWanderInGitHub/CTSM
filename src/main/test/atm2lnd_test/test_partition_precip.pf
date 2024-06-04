@@ -2,14 +2,15 @@ module test_partition_precip
 
   ! Tests of atm2lndMod: partition_precip
 
-  use pfunit_mod
+  use funit
   use atm2lndMod
   use atm2lndType
+  use ColumnType, only : col
   use shr_kind_mod, only : r8 => shr_kind_r8
   use unittestSubgridMod
   use unittestSimpleSubgridSetupsMod
   use unittestArrayMod
-  use landunit_varcon, only : istice_mec
+  use landunit_varcon, only : istice
   use clm_varcon, only : hfus   ! latent heat of fusion for ice [J/kg]
   use clm_varcon, only : denh2o ! density of liquid water [kg/m3]
   use shr_const_mod, only : SHR_CONST_TKFRZ
@@ -64,6 +65,7 @@ contains
 
     logical :: l_repartition_rain_snow
     type(atm2lnd_params_type) :: atm2lnd_params
+    integer :: c, g
 
     if (present(repartition_rain_snow)) then
        l_repartition_rain_snow = repartition_rain_snow
@@ -89,6 +91,15 @@ contains
     this%wateratm2lndbulk_inst%forc_rain_not_downscaled_grc(bounds%begg:bounds%endg) = rain(:)
     this%wateratm2lndbulk_inst%forc_snow_not_downscaled_grc(bounds%begg:bounds%endg) = snow(:)
     this%atm2lnd_inst%forc_t_downscaled_col(bounds%begc:bounds%endc) = temperature(:)
+
+    ! In the production code, column-level versions of forc_rain and forc_snow are
+    ! initialized to the gridcell-level versions prior to the call to partition_precip; do
+    ! that here
+    do c = bounds%begc, bounds%endc
+       g = col%gridcell(c)
+       this%wateratm2lndbulk_inst%forc_rain_downscaled_col(c) = this%wateratm2lndbulk_inst%forc_rain_not_downscaled_grc(g)
+       this%wateratm2lndbulk_inst%forc_snow_downscaled_col(c) = this%wateratm2lndbulk_inst%forc_snow_not_downscaled_grc(g)
+    end do
   end subroutine set_inputs
 
   @Test
@@ -178,7 +189,7 @@ contains
 
     call unittest_subgrid_setup_start()
     call unittest_add_gridcell()
-    call create_landunit_ncols(ltype = istice_mec, lweight = 1._r8, &
+    call create_landunit_ncols(ltype = istice, lweight = 1._r8, &
          ctypes = [1], cweights = [1._r8])
     call unittest_subgrid_setup_end()
 
